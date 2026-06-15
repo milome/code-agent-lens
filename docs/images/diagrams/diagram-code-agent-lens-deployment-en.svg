@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 650" role="img" aria-labelledby="title desc" data-figure-id="diagram-code-agent-lens-deployment-en" data-visual-pattern="local-deployment-architecture">
+  <title id="title">CodeAgentLens Local Deployment</title>
+  <desc id="desc">How the Gateway, Debug Portal, dump root, and observability stack connect locally</desc>
+
+  <defs>
+    <marker id="arrow-client" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#8b5a2b"/></marker>
+    <marker id="arrow-gateway" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="arrow-external" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/></marker>
+    <marker id="arrow-telemetry" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+    <marker id="arrow-local" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="arrow-obs" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/></marker>
+  </defs>
+
+  <style>
+    .font { font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif; }
+    .diagram-title { font-size: 30px; font-weight: 850; fill: #1c1917; text-anchor: middle; }
+    .diagram-subtitle { font-size: 16px; font-weight: 500; fill: #78716c; text-anchor: middle; }
+    .group-title { font-size: 18px; font-weight: 800; text-anchor: start; }
+    .node-title { font-size: 16px; font-weight: 760; text-anchor: middle; }
+    .node-subtitle { font-size: 13px; font-weight: 500; fill: #6b7280; text-anchor: middle; }
+    .legend { font-size: 12px; font-weight: 650; fill: #6b7280; text-anchor: start; }
+    .box { fill: #fafaf9; stroke-width: 2; }
+    .panel { fill: #f5f5f4; stroke-width: 2; }
+    .obs-panel { fill: #faf5ff; stroke-width: 2; }
+    .line { stroke-width: 2.5; fill: none; stroke-linecap: square; stroke-linejoin: round; }
+    .dash { stroke-dasharray: 7 5; }
+  </style>
+  <rect x="0" y="0" width="1100" height="650" fill="#f8f6f3"/>
+
+  <text x="550" y="42" class="font diagram-title" text-anchor="middle">CodeAgentLens Local Deployment</text>
+  <text x="550" y="72" class="font diagram-subtitle" text-anchor="middle">How the Gateway, Debug Portal, dump root, and observability stack connect locally</text>
+
+  <rect x="55" y="230" width="150" height="62" rx="12" class="box" fill="#fafaf9" stroke="#8b5a2b"/>
+  <text x="130" y="267" class="font node-title" text-anchor="middle" fill="#8b5a2b"><tspan x="130" dy="0">Code Agent CLI</tspan></text>
+  <rect x="55" y="370" width="150" height="62" rx="12" class="box" fill="#fafaf9" stroke="#8b5a2b"/>
+  <text x="130" y="407" class="font node-title" text-anchor="middle" fill="#8b5a2b"><tspan x="130" dy="0">User Browser</tspan></text>
+  <rect x="875" y="44" width="185" height="62" rx="12" class="box" fill="#fafaf9" stroke="#dc2626"/>
+  <text x="967.5" y="81" class="font node-title" text-anchor="middle" fill="#991b1b"><tspan x="967.5" dy="0">Model Endpoints</tspan></text>
+
+  <rect x="245" y="120" width="800" height="465" rx="18" class="panel" fill="#f5f5f4" stroke="#6b7280"/>
+  <text x="267" y="157" class="font group-title" text-anchor="start" fill="#6b7280">Developer Machine</text>
+
+  <rect x="285" y="170" width="360" height="355" rx="18" class="box" fill="#fafaf9" stroke="#2563eb"/>
+  <text x="307" y="207" class="font group-title" text-anchor="start" fill="#2563eb">CodeAgentLens Runtime</text>
+  <rect x="330" y="220" width="180" height="78" rx="12" class="box" fill="#fafaf9" stroke="#2563eb"/>
+  <text x="420" y="252" class="font node-title" text-anchor="middle" fill="#2563eb"><tspan x="420" dy="0">Gateway :3010</tspan></text>
+  <text x="420" y="275" class="font node-subtitle" text-anchor="middle">127.0.0.1</text>
+  <rect x="330" y="360" width="180" height="78" rx="12" class="box" fill="#fafaf9" stroke="#7c3aed"/>
+  <text x="420" y="392" class="font node-title" text-anchor="middle" fill="#6b21a8"><tspan x="420" dy="0">Debug Portal :3011</tspan></text>
+  <text x="420" y="415" class="font node-subtitle" text-anchor="middle">/debug/obs</text>
+  <rect x="330" y="470" width="140" height="50" rx="12" class="box" fill="#fafaf9" stroke="#047857"/>
+  <text x="400" y="501" class="font node-title" text-anchor="middle" fill="#047857"><tspan x="400" dy="0">SQLite Store</tspan></text>
+  <rect x="500" y="470" width="140" height="50" rx="12" class="box" fill="#fafaf9" stroke="#7c3aed"/>
+  <text x="570" y="501" class="font node-title" text-anchor="middle" fill="#6b21a8"><tspan x="570" dy="0">Dump Root</tspan></text>
+
+  <rect x="705" y="170" width="300" height="355" rx="18" class="box" fill="#fafaf9" stroke="#ea580c"/>
+  <text x="727" y="207" class="font group-title" text-anchor="start" fill="#ea580c">Observability Stack</text>
+  <rect x="745" y="220" width="220" height="78" rx="12" class="box" fill="#fafaf9" stroke="#ea580c"/>
+  <text x="855" y="252" class="font node-title" text-anchor="middle" fill="#92400e"><tspan x="855" dy="0">OTel Collector</tspan></text>
+  <text x="855" y="275" class="font node-subtitle" text-anchor="middle">4317 / 4318 / 8888</text>
+  <rect x="745" y="360" width="220" height="78" rx="12" class="box" fill="#fafaf9" stroke="#ea580c"/>
+  <text x="855" y="392" class="font node-title" text-anchor="middle" fill="#92400e"><tspan x="855" dy="0">Jaeger / Grafana</tspan></text>
+  <text x="855" y="415" class="font node-subtitle" text-anchor="middle">16686 / 13000</text>
+  <rect x="745" y="470" width="220" height="76" rx="12" class="box" fill="#fafaf9" stroke="#ea580c"/>
+  <text x="855" y="502" class="font node-title" text-anchor="middle" fill="#92400e"><tspan x="855" dy="0">Prometheus / Tempo</tspan></text>
+  <text x="855" y="525" class="font node-subtitle" text-anchor="middle">9090 / 3200</text>
+
+  <line x1="205" y1="261" x2="330" y2="261" class="line" stroke="#8b5a2b" marker-end="url(#arrow-client)"/>
+  <line x1="205" y1="401" x2="330" y2="401" class="line" stroke="#8b5a2b" marker-end="url(#arrow-client)"/>
+  <path d="M 510 245 H 675 V 93 H 875" class="line dash" stroke="#dc2626" marker-end="url(#arrow-external)"/>
+  <line x1="510" y1="270" x2="745" y2="270" class="line" stroke="#ea580c" marker-end="url(#arrow-telemetry)"/>
+  <path d="M 365 290 V 322 H 300 V 495 H 330" class="line" stroke="#16a34a" marker-end="url(#arrow-local)"/>
+  <path d="M 475 290 V 328 H 570 V 470" class="line dash" stroke="#7c3aed" marker-end="url(#arrow-obs)"/>
+  <path d="M 510 405 H 610 V 470" class="line dash" stroke="#7c3aed" marker-end="url(#arrow-obs)"/>
+  <line x1="510" y1="395" x2="745" y2="395" class="line dash" stroke="#7c3aed" marker-end="url(#arrow-obs)"/>
+  <path d="M 965 259 H 985 V 399 H 965" class="line" stroke="#ea580c" marker-end="url(#arrow-telemetry)"/>
+  <path d="M 965 399 H 985 V 505 H 965" class="line" stroke="#ea580c" marker-end="url(#arrow-telemetry)"/>
+
+  <line x1="92" y1="624" x2="120" y2="624" stroke="#8b5a2b" stroke-width="2.5"/>
+  <text x="130" y="628" class="font legend">local entry</text>
+  <line x1="286" y1="624" x2="314" y2="624" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="7 5"/>
+  <text x="324" y="628" class="font legend">model call</text>
+  <line x1="520" y1="624" x2="548" y2="624" stroke="#ea580c" stroke-width="2.5"/>
+  <text x="558" y="628" class="font legend">telemetry</text>
+  <line x1="735" y1="624" x2="763" y2="624" stroke="#7c3aed" stroke-width="2.5" stroke-dasharray="7 5"/>
+  <text x="773" y="628" class="font legend">evidence access</text>
+  <line x1="930" y1="624" x2="958" y2="624" stroke="#16a34a" stroke-width="2.5"/>
+  <text x="968" y="628" class="font legend">state write</text>
+
+</svg>
