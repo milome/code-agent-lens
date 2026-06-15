@@ -1,0 +1,28 @@
+.tmp/
+node_modules/
+cmd/desktop/frontend/node_modules/
+cmd/desktop/frontend/dist/
+
+# Build outputs
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+coverage/
+dist/
+build/
+
+# Runtime data and logs
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+code-agent-lens/
+cmd/server/code-agent-lens/
+
+# Release evidence generated locally
+*.spdx.json
+checksums.txt
+gitleaks.json

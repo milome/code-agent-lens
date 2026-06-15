@@ -1,0 +1,8 @@
+{
+  "name": "code-agent-lens-release-workspace",
+  "private": true,
+  "description": "Release-gate workspace metadata for CodeAgentLens. Public runtime builds use Go modules and cmd/desktop/frontend/package.json.",
+  "scripts": {
+    "release:check-observability-docs": "node scripts/verify-observability-docs.mjs"
+  }
+}

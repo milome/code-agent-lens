@@ -1,0 +1,16 @@
+{
+  "linkPatterns": [
+    {
+      "type": "tags",
+      "key": "code-agent-lens_obs_ref",
+      "url": "http://127.0.0.1:3011/debug/obs/ref/#{code-agent-lens_obs_ref}",
+      "text": "Open CodeAgentLens Debug Viewer"
+    },
+    {
+      "type": "tags",
+      "key": "code-agent-lens_obs_viewer_url",
+      "url": "#{code-agent-lens_obs_viewer_url}",
+      "text": "Open CodeAgentLens trace dump"
+    }
+  ]
+}

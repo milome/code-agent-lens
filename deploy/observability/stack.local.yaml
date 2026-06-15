@@ -1,0 +1,111 @@
+schema_version: code-agent-lens-observability-stack/v1
+product: CodeAgentLens
+runtime_modes:
+  native_exe:
+    gateway_public_url: http://127.0.0.1:3010
+    portal_public_url: http://127.0.0.1:3011/debug/obs
+    otlp_endpoint: http://127.0.0.1:4318
+    dump_path: .tmp/code-agent-lens-observability/native
+  docker_compose:
+    gateway_public_url: http://127.0.0.1:3010
+    portal_public_url: http://127.0.0.1:3011/debug/obs
+    otlp_endpoint: http://otel-collector:4318
+    dump_path: /data/observability
+tools:
+  code-agent-lens:
+    label: CodeAgentLens Gateway
+    public_url: http://127.0.0.1:3010
+    container_url: http://code-agent-lens:3010
+    health_url: http://127.0.0.1:3010/health
+    portal_link_url: http://127.0.0.1:3011/debug/obs
+    embed_allowed: false
+  jaeger:
+    label: Jaeger
+    public_url: http://127.0.0.1:16686
+    container_url: http://jaeger:16686
+    health_url: http://127.0.0.1:16686
+    portal_link_url: http://127.0.0.1:3011/debug/obs/tool/jaeger
+    trace_deep_link_template: http://127.0.0.1:16686/trace/{trace_id}
+    embed_allowed: true
+  grafana:
+    label: Grafana
+    public_url: http://127.0.0.1:13000
+    container_url: http://grafana:3000
+    health_url: http://127.0.0.1:13000/api/health
+    portal_link_url: http://127.0.0.1:3011/debug/obs/tool/grafana
+    embed_allowed: true
+  prometheus:
+    label: Prometheus
+    public_url: http://127.0.0.1:9090/graph
+    container_url: http://prometheus:9090/graph
+    health_url: http://127.0.0.1:9090/-/ready
+    portal_link_url: http://127.0.0.1:9090/graph
+    embed_allowed: false
+  tempo:
+    label: Tempo
+    public_url: http://127.0.0.1:3200/status
+    container_url: http://tempo:3200/status
+    health_url: http://127.0.0.1:3200/status
+    portal_link_url: http://127.0.0.1:3200/status
+    embed_allowed: false
+  otel_collector:
+    label: OTel Collector
+    public_url: http://127.0.0.1:8888/metrics
+    container_url: http://otel-collector:8888/metrics
+    health_url: http://127.0.0.1:8888/metrics
+    portal_link_url: http://127.0.0.1:8888/metrics
+    embed_allowed: false
+deployment_profiles:
+  local_debug:
+    bind_policy: loopback_only
+    portal_auth_required: false
+    capture_default: full
+    capture_headers: all
+    capture_bodies: all
+    capture_stream_events: all
+    prompt_extract: true
+    capture_secrets: false
+    max_body_bytes: 1048576
+    raw_artifact_access: local_admin
+  lan_team:
+    bind_policy: private_network_only
+    portal_auth_required: true
+    allowed_auth_modes:
+      - admin_token
+      - basic
+    capture_default: metadata_only
+    capture_secrets: false
+    max_body_bytes: 65536
+    raw_artifact_access: admin_temporary_ttl
+  public_server:
+    bind_policy: reverse_proxy_only
+    portal_auth_required: true
+    allowed_auth_modes:
+      - oidc_proxy
+      - oidc
+    require_https: true
+    expose_observability_tools: false
+    capture_default: metadata_only
+    capture_secrets: false
+    max_body_bytes: 32768
+    raw_artifact_access: admin_audited_only
+roles:
+  viewer:
+    - obs.view
+    - logs.sanitized.view
+    - usage.metadata.view
+  operator:
+    - obs.view
+    - logs.sanitized.view
+    - usage.metadata.view
+    - validation.run
+    - capture.temporary.enable
+  admin:
+    - obs.view
+    - logs.sanitized.view
+    - usage.metadata.view
+    - validation.run
+    - capture.temporary.enable
+    - raw_artifact.view
+    - auth.manage
+    - endpoint_credentials.manage

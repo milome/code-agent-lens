@@ -1,0 +1,26 @@
+{
+  "model": "code-agent-lens-local-smoke",
+  "instructions": "system prompt: observe local CodeAgentLens OpenAI Responses request",
+  "input": [
+    {
+      "role": "developer",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "developer prompt: keep the response deterministic"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "user prompt: return code-agent-lens-otel-smoke-responses"
+        }
+      ]
+    }
+  ],
+  "stream": false,
+  "store": false
+}

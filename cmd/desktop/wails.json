@@ -1,0 +1,29 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "CodeAgentLens",
+  "outputfilename": "CodeAgentLens",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "http://localhost:34115",
+  "debounceMS": 100,
+  "devServer": "localhost:34115",
+  "appargs": "",
+  "runNonNativeBuildScript": false,
+  "preBuildHooks": {
+    "before:build": ""
+  },
+  "postBuildHooks": {
+    "after:build": ""
+  },
+  "author": {
+    "name": "milome"
+  },
+  "info": {
+    "companyName": "milome",
+    "productName": "CodeAgentLens",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright (c) 2026 milome",
+    "comments": "A locally running model-endpoint gateway and observability workbench for coding agents."
+  }
+}

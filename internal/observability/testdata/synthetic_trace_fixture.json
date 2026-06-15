@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "code-agent-lens-synthetic-trace-fixture/v1",
+  "endpoint": "/v1/responses",
+  "requestFixture": "internal/observability/testdata/openai_responses_request.json",
+  "expectedUsageSource": "upstream",
+  "requiredPromptRoles": [
+    "system",
+    "developer",
+    "user"
+  ],
+  "requiredArtifacts": [
+    "ingress.request.body.raw",
+    "prompt.index.json",
+    "transform.request.input.raw",
+    "transform.request.output.raw",
+    "upstream.request.url.json",
+    "upstream.request.headers.json",
+    "upstream.request.body.raw",
+    "upstream.response.headers.json",
+    "upstream.response.body.raw",
+    "upstream.response.transformed.raw",
+    "usage.json"
+  ]
+}

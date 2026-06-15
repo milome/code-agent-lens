@@ -1,0 +1,7 @@
+title = "CodeAgentLens gitleaks config"
+
+[allowlist]
+description = "No project-wide secret allowlist entries are active for first release."
+paths = []
+regexes = []
+

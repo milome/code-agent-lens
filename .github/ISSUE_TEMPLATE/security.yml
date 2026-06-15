@@ -1,0 +1,7 @@
+name: Security report redirect
+description: Use private vulnerability reporting for security issues
+body:
+  - type: markdown
+    attributes:
+      value: "Report security vulnerabilities through GitHub private vulnerability reporting: https://github.com/milome/code-agent-lens/security/advisories/new. Do not include vulnerability details in public issues."
+

@@ -1,0 +1,18 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:3010",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+    "CLAUDE_CODE_PROPAGATE_TRACEPARENT": "1",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_TRACES_EXPORTER": "otlp",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOG_RAW_API_BODIES": "file:./.tmp/code-agent-lens-observability/claude-otel-api-bodies",
+    "CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL": "http://127.0.0.1:3011/debug/obs"
+  },
+  "notes": [
+    "CLAUDE_CODE_PROPAGATE_TRACEPARENT is required when Claude Code sends model traffic to a custom base URL.",
+    "Use Jaeger linkPatterns or Grafana Trace correlation with traceID, spanID, and code-agent-lens_obs_ref to open the local Debug Viewer."
+  ]
+}

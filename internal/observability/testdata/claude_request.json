@@ -1,0 +1,15 @@
+{
+  "model": "claude-3-5-sonnet-latest",
+  "system": "system prompt: observe local CodeAgentLens Claude request",
+  "messages": [
+    {
+      "role": "developer",
+      "content": "developer prompt: keep the response deterministic"
+    },
+    {
+      "role": "user",
+      "content": "user prompt: return code-agent-lens-otel-smoke-claude"
+    }
+  ],
+  "stream": false
+}

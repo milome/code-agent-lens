@@ -1,0 +1,35 @@
+services:
+  code-agent-lens:
+    build:
+      context: ../..
+      dockerfile: cmd/server/Dockerfile
+    container_name: code-agent-lens
+    restart: unless-stopped
+    ports:
+      - "3010:3000"
+      - "3011:3011"
+    volumes:
+      - ./code-agent-lens/:/data
+      - ../../.tmp/docker-observability:/data/observability
+    environment:
+      - CODE_AGENT_LENS_PORT=3000
+      - CODE_AGENT_LENS_DATA_DIR=/data
+      - CODE_AGENT_LENS_DB_PATH=/data/code-agent-lens.db
+      - CODE_AGENT_LENS_OTEL_ENABLED=true
+      - CODE_AGENT_LENS_OBS_LOCAL_DEBUG=true
+      - CODE_AGENT_LENS_OBS_DUMP_ENABLED=true
+      - CODE_AGENT_LENS_OBS_DUMP_DIR=/data/observability
+      - CODE_AGENT_LENS_OBS_VIEWER_ENABLED=true
+      - CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL=http://127.0.0.1:3011/debug/obs
+      - CODE_AGENT_LENS_OBS_CAPTURE_HEADERS=all
+      - CODE_AGENT_LENS_OBS_CAPTURE_BODIES=all
+      - CODE_AGENT_LENS_OBS_CAPTURE_STREAM_EVENTS=all
+      - CODE_AGENT_LENS_OBS_PROMPT_EXTRACT=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

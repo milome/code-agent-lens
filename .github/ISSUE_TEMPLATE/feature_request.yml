@@ -1,0 +1,10 @@
+name: Feature request
+description: Propose a feature
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+    validations:
+      required: true
+

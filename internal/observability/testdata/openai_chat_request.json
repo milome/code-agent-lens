@@ -1,0 +1,23 @@
+{
+  "model": "code-agent-lens-local-smoke",
+  "messages": [
+    {
+      "role": "system",
+      "content": "system prompt: observe local CodeAgentLens OpenAI Chat request"
+    },
+    {
+      "role": "developer",
+      "content": "developer prompt: keep the response deterministic"
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "user prompt: return code-agent-lens-otel-smoke-chat"
+        }
+      ]
+    }
+  ],
+  "stream": false
+}

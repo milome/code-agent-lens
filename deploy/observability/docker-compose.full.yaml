@@ -1,0 +1,55 @@
+services:
+  code-agent-lens:
+    build:
+      context: ../..
+      dockerfile: cmd/server/Dockerfile
+    ports:
+      - "127.0.0.1:3010:3010"
+      - "127.0.0.1:3011:3011"
+    environment:
+      CODE_AGENT_LENS_PORT: "3010"
+      CODE_AGENT_LENS_DATA_DIR: /data
+      CODE_AGENT_LENS_DB_PATH: /data/code-agent-lens.db
+      CODE_AGENT_LENS_OTEL_ENABLED: "true"
+      CODE_AGENT_LENS_OBS_LOCAL_DEBUG: "true"
+      CODE_AGENT_LENS_OBS_DUMP_ENABLED: "true"
+      CODE_AGENT_LENS_OBS_DUMP_DIR: /data/observability
+      CODE_AGENT_LENS_OBS_VIEWER_ENABLED: "true"
+      CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL: http://127.0.0.1:3011/debug/obs
+      CODE_AGENT_LENS_OBS_CAPTURE_HEADERS: all
+      CODE_AGENT_LENS_OBS_CAPTURE_BODIES: all
+      CODE_AGENT_LENS_OBS_CAPTURE_STREAM_EVENTS: all
+      CODE_AGENT_LENS_OBS_PROMPT_EXTRACT: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: code-agent-lens
+    volumes:
+      - code-agent-lens-data:/data
+      - code-agent-lens-observability:/data/observability
+    depends_on:
+      - otel-collector
+  jaeger:
+    extends:
+      file: docker-compose.observability.yaml
+      service: jaeger
+  tempo:
+    extends:
+      file: docker-compose.observability.yaml
+      service: tempo
+  prometheus:
+    extends:
+      file: docker-compose.observability.yaml
+      service: prometheus
+  grafana:
+    extends:
+      file: docker-compose.observability.yaml
+      service: grafana
+  otel-collector:
+    extends:
+      file: docker-compose.observability.yaml
+      service: otel-collector
+volumes:
+  code-agent-lens-data:
+  code-agent-lens-observability:
+  tempo-data:
+  prometheus-data:
+  grafana-data:
