@@ -46,6 +46,45 @@ import {
     minimizeToTray
 } from './modules/modal.js'
 
+function showStartupStatus(message, detail = '') {
+    const app = document.getElementById('app');
+    if (!app) return;
+    app.innerHTML = `
+        <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 32px; color: white;">
+            <div style="max-width: 760px; width: 100%; background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255,255,255,0.18); border-radius: 16px; padding: 24px; box-shadow: 0 24px 80px rgba(0,0,0,0.28);">
+                <h1 style="margin: 0 0 12px; font-size: 24px;">CodeAgentLens is starting</h1>
+                <div style="font-size: 15px; line-height: 1.7;">${message}</div>
+                ${detail ? `<pre style="margin-top: 16px; white-space: pre-wrap; color: #fecaca; background: rgba(127,29,29,0.35); border-radius: 10px; padding: 12px; overflow: auto;">${detail}</pre>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function formatStartupError(error) {
+    if (!error) return '';
+    if (error.stack) return error.stack;
+    if (error.message) return error.message;
+    return String(error);
+}
+
+async function waitForWailsBridge(timeoutMs = 10000) {
+    const start = Date.now();
+    while (!window.go?.main?.App) {
+        if (Date.now() - start > timeoutMs) {
+            throw new Error('Wails bridge was not injected. window.go.main.App is unavailable.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+}
+
+window.addEventListener('error', (event) => {
+    showStartupStatus('Frontend startup failed.', formatStartupError(event.error || event.message));
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+    showStartupStatus('Frontend startup failed.', formatStartupError(event.reason));
+});
+
 // Handle real-time stats update events from backend (4-period data)
 function handleStatsUpdate(data) {
     if (!data || !data.endpointName) {
@@ -89,71 +128,71 @@ function handleStatsUpdate(data) {
 
 // Load data on startup
 window.addEventListener('DOMContentLoaded', async () => {
-    // Wait for Wails runtime to be ready
-    while (!window.go) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
+    showStartupStatus('Waiting for Wails bridge...');
 
-    // Initialize language
-    const lang = await window.go.main.App.GetLanguage();
-    setLanguage(lang);
-
-    // Initialize theme (supports auto mode)
-    await initTheme();
-
-    // Initialize UI
-    initUI();
-
-    // Initialize endpoint view mode
-    initEndpointViewMode();
-
-    // Initialize filter dropdowns
-    initFilterDropdowns();
-
-    // Initialize session module
-    initSession();
-
-    // Initialize model input events
-    initModelInputEvents();
-
-    // Load and display version
     try {
-        const version = await window.go.main.App.GetVersion();
-        document.getElementById('appVersion').textContent = version;
-    } catch (error) {
-        console.error('Failed to get version:', error);
-    }
+        await waitForWailsBridge();
 
-    // Load initial data
-    // IMPORTANT: Load stats first to populate cache, then render endpoints
-    await loadStatsByPeriod('daily'); // Load today's stats by default (ensure initialization completes before events)
-    await loadConfigAndRender();      // Render endpoints after stats are loaded
+        showStartupStatus('Loading language settings...');
+        const lang = await window.go.main.App.GetLanguage();
+        setLanguage(lang);
 
-    // Restore log level from config
-    try {
-        const logLevel = await window.go.main.App.GetLogLevel();
-        document.getElementById('logLevel').value = logLevel;
-    } catch (error) {
-        console.error('Failed to get log level:', error);
-    }
+        showStartupStatus('Loading theme settings...');
+        await initTheme();
 
-    loadLogs();
+        showStartupStatus('Rendering UI...');
+        initUI();
 
-    // Initialize tips
-    initTips();
+        // Initialize endpoint view mode
+        initEndpointViewMode();
 
-    // Initialize endpoint success listener
-    initEndpointSuccessListener();
+        // Initialize filter dropdowns
+        initFilterDropdowns();
 
-    // Check all endpoints on startup (zero-cost methods only)
-    checkAllEndpointsOnStartup();
+        // Initialize session module
+        initSession();
 
-    // Listen for real-time stats updates from backend
-    if (window.runtime && window.runtime.EventsOn) {
-        window.runtime.EventsOn('stats:updated', (data) => {
-            handleStatsUpdate(data);
-        });
-    }
+        // Initialize model input events
+        initModelInputEvents();
+
+        // Load and display version
+        try {
+            const version = await window.go.main.App.GetVersion();
+            document.getElementById('appVersion').textContent = version;
+        } catch (error) {
+            console.error('Failed to get version:', error);
+        }
+
+        // Load initial data
+        // IMPORTANT: Load stats first to populate cache, then render endpoints
+        await loadStatsByPeriod('daily'); // Load today's stats by default (ensure initialization completes before events)
+        await loadConfigAndRender();      // Render endpoints after stats are loaded
+
+        // Restore log level from config
+        try {
+            const logLevel = await window.go.main.App.GetLogLevel();
+            document.getElementById('logLevel').value = logLevel;
+        } catch (error) {
+            console.error('Failed to get log level:', error);
+        }
+
+        loadLogs();
+
+        // Initialize tips
+        initTips();
+
+        // Initialize endpoint success listener
+        initEndpointSuccessListener();
+
+        // Check all endpoints on startup (zero-cost methods only)
+        checkAllEndpointsOnStartup();
+
+        // Listen for real-time stats updates from backend
+        if (window.runtime && window.runtime.EventsOn) {
+            window.runtime.EventsOn('stats:updated', (data) => {
+                handleStatsUpdate(data);
+            });
+        }
 
     // Fallback: If event-based updates fail, uncomment the following to restore polling
     // setInterval(async () => {
@@ -170,33 +209,37 @@ window.addEventListener('DOMContentLoaded', async () => {
     //     }
     // }, 30000); // 降低频率到 30 秒
 
-    // Refresh logs every 2 seconds
-    setInterval(loadLogs, 2000);
+        // Refresh logs every 2 seconds
+        setInterval(loadLogs, 2000);
 
-    // Show welcome modal on first launch
-    showWelcomeModalIfFirstTime();
-    // showChangelogIfNewVersion(); // 暂时禁用自动弹窗
+        // Show welcome modal on first launch
+        showWelcomeModalIfFirstTime();
+        // showChangelogIfNewVersion(); // 暂时禁用自动弹窗
 
-    // Check for updates on startup
-    checkUpdatesOnStartup();
+        // Check for updates on startup
+        checkUpdatesOnStartup();
 
-    // Initialize update settings
-    initUpdateSettings();
+        // Initialize update settings
+        initUpdateSettings();
 
-    // Listen for close dialog event from backend
-    if (window.runtime) {
-        window.runtime.EventsOn('show-close-dialog', () => {
-            showCloseActionDialog();
-        });
-    }
-
-    // Handle Cmd/Ctrl+W to hide window
-    window.addEventListener('keydown', (e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
-            e.preventDefault();
-            window.runtime.WindowHide();
+        // Listen for close dialog event from backend
+        if (window.runtime) {
+            window.runtime.EventsOn('show-close-dialog', () => {
+                showCloseActionDialog();
+            });
         }
-    });
+
+        // Handle Cmd/Ctrl+W to hide window
+        window.addEventListener('keydown', (e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
+                e.preventDefault();
+                window.runtime.WindowHide();
+            }
+        });
+    } catch (error) {
+        console.error('Frontend startup failed:', error);
+        showStartupStatus('Frontend startup failed.', formatStartupError(error));
+    }
 });
 
 // Helper function to load config and render endpoints

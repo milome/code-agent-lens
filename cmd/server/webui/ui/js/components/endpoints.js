@@ -4,6 +4,16 @@ import { notifications } from '../utils/notifications.js';
 import { getTransformerLabel, getStatusBadge } from '../utils/formatters.js';
 import { t } from '../utils/i18n.js';
 
+const AUTH_MODE_API_KEY = 'api_key';
+const AUTH_MODE_TOKEN_POOL = 'token_pool';
+const AUTH_MODE_CODEX_TOKEN_POOL = 'codex_token_pool';
+const CODEX_TOKEN_POOL_API_URL = 'https://chatgpt.com/backend-api/codex';
+const CODEX_TOKEN_POOL_TRANSFORMER = 'openai2';
+
+function isTokenPoolAuthMode(authMode) {
+    return authMode === AUTH_MODE_TOKEN_POOL || authMode === AUTH_MODE_CODEX_TOKEN_POOL;
+}
+
 class Endpoints {
     constructor() {
         this.container = document.getElementById('view-container');
@@ -333,14 +343,19 @@ class Endpoints {
     showEndpointModal(endpoint, isClone = false) {
         const isEdit = !!endpoint && !isClone;
         const modalContainer = document.getElementById('modal-container');
+        const authMode = endpoint?.authMode || AUTH_MODE_API_KEY;
+        const isTokenPool = isTokenPoolAuthMode(authMode);
+        const isCodexTokenPool = authMode === AUTH_MODE_CODEX_TOKEN_POOL;
 
         // For clone mode: show masked value like edit mode
-        const apiKeyValue = endpoint ? '****' : '';
-        const apiKeyPlaceholder = 'sk-...';
+        const apiKeyValue = endpoint && !isTokenPool ? '****' : '';
+        const apiKeyPlaceholder = t('endpoints.apiKeyPlaceholder');
         const apiKeyHint = isEdit || isClone ? `<small class="text-muted">${t('endpoints.keepExistingKey')}</small>` : '';
         const cloneHiddenInput = isClone ? '<input type="hidden" name="isClone" value="true">' : '';
         const cloneFromValue = endpoint?.cloneFrom || '';
         const cloneFromInput = isClone && cloneFromValue ? `<input type="hidden" name="cloneFrom" value="${cloneFromValue}">` : '';
+        const apiUrlValue = isCodexTokenPool ? CODEX_TOKEN_POOL_API_URL : (endpoint?.apiUrl || '');
+        const transformerValue = isCodexTokenPool ? CODEX_TOKEN_POOL_TRANSFORMER : (endpoint?.transformer || 'claude');
 
         modalContainer.innerHTML = `
             <div class="modal-overlay">
@@ -358,10 +373,20 @@ class Endpoints {
                                 <input type="text" class="form-input" name="name" value="${endpoint ? this.escapeHtml(endpoint.name) : ''}" required ${isEdit ? 'readonly' : ''}>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">${t('endpoints.apiUrl')} *</label>
-                                <input type="text" class="form-input" name="apiUrl" value="${endpoint ? this.escapeHtml(endpoint.apiUrl) : ''}" placeholder="${t('endpoints.apiUrlPlaceholder')}" required>
+                                <label class="form-label">${t('endpoints.authMode')} *</label>
+                                <select class="form-select" name="authMode" required>
+                                    <option value="api_key" ${authMode === AUTH_MODE_API_KEY ? 'selected' : ''}>${t('endpoints.authModeApiKey')}</option>
+                                    <option value="token_pool" ${authMode === AUTH_MODE_TOKEN_POOL ? 'selected' : ''}>${t('endpoints.authModeTokenPool')}</option>
+                                    <option value="codex_token_pool" ${authMode === AUTH_MODE_CODEX_TOKEN_POOL ? 'selected' : ''}>${t('endpoints.authModeCodexTokenPool')}</option>
+                                </select>
+                                <small class="text-muted" id="auth-mode-help">${t('endpoints.authModeHelp')}</small>
                             </div>
                             <div class="form-group">
+                                <label class="form-label">${t('endpoints.apiUrl')} *</label>
+                                <input type="text" class="form-input" name="apiUrl" value="${this.escapeHtml(apiUrlValue)}" placeholder="${t('endpoints.apiUrlPlaceholder')}" required>
+                                <small class="text-muted" id="api-url-help"></small>
+                            </div>
+                            <div class="form-group" id="api-key-form-group">
                                 <label class="form-label">${t('endpoints.apiKey')} *</label>
                                 <input type="password" class="form-input" name="apiKey" value="${apiKeyValue}" placeholder="${apiKeyPlaceholder}" required>
                                 ${apiKeyHint}
@@ -369,12 +394,13 @@ class Endpoints {
                             <div class="form-group">
                                 <label class="form-label">${t('endpoints.transformer')} *</label>
                                 <select class="form-select" name="transformer" required>
-                                    <option value="claude" ${endpoint?.transformer === 'claude' ? 'selected' : ''}>${t('transformers.claude')}</option>
-                                    <option value="openai" ${endpoint?.transformer === 'openai' ? 'selected' : ''}>${t('transformers.openai')}</option>
-                                    <option value="openai2" ${endpoint?.transformer === 'openai2' ? 'selected' : ''}>${t('transformers.openai2')}</option>
-                                    <option value="gemini" ${endpoint?.transformer === 'gemini' ? 'selected' : ''}>${t('transformers.gemini')}</option>
-                                    <option value="deepseek" ${endpoint?.transformer === 'deepseek' ? 'selected' : ''}>${t('transformers.deepseek')}</option>
+                                    <option value="claude" ${transformerValue === 'claude' ? 'selected' : ''}>${t('transformers.claude')}</option>
+                                    <option value="openai" ${transformerValue === 'openai' ? 'selected' : ''}>${t('transformers.openai')}</option>
+                                    <option value="openai2" ${transformerValue === 'openai2' ? 'selected' : ''}>${t('transformers.openai2')}</option>
+                                    <option value="gemini" ${transformerValue === 'gemini' ? 'selected' : ''}>${t('transformers.gemini')}</option>
+                                    <option value="deepseek" ${transformerValue === 'deepseek' ? 'selected' : ''}>${t('transformers.deepseek')}</option>
                                 </select>
+                                <small class="text-muted" id="transformer-help"></small>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">${t('endpoints.model')}</label>
@@ -413,9 +439,63 @@ class Endpoints {
             this.saveEndpoint(isEdit, endpoint?.name, isClone);
         });
         document.getElementById('fetch-models-btn').addEventListener('click', () => this.fetchModels());
+        document.querySelector('select[name="authMode"]').addEventListener('change', () => this.syncAuthModeFields());
+        this.syncAuthModeFields();
+    }
+
+    syncAuthModeFields() {
+        const authModeSelect = document.querySelector('select[name="authMode"]');
+        const apiUrlInput = document.querySelector('input[name="apiUrl"]');
+        const apiKeyInput = document.querySelector('input[name="apiKey"]');
+        const apiKeyFormGroup = document.getElementById('api-key-form-group');
+        const transformerSelect = document.querySelector('select[name="transformer"]');
+        const apiUrlHelp = document.getElementById('api-url-help');
+        const transformerHelp = document.getElementById('transformer-help');
+        const fetchBtn = document.getElementById('fetch-models-btn');
+
+        if (!authModeSelect || !apiUrlInput || !apiKeyInput || !transformerSelect) {
+            return;
+        }
+
+        const authMode = authModeSelect.value || AUTH_MODE_API_KEY;
+        const isTokenPool = isTokenPoolAuthMode(authMode);
+        const isCodexTokenPool = authMode === AUTH_MODE_CODEX_TOKEN_POOL;
+
+        apiKeyFormGroup.style.display = isTokenPool ? 'none' : '';
+        apiKeyInput.disabled = isTokenPool;
+        apiKeyInput.required = !isTokenPool;
+        if (isTokenPool) {
+            apiKeyInput.value = '';
+        }
+
+        apiUrlInput.readOnly = isCodexTokenPool;
+        transformerSelect.disabled = isCodexTokenPool;
+        if (isCodexTokenPool) {
+            apiUrlInput.value = CODEX_TOKEN_POOL_API_URL;
+            transformerSelect.value = CODEX_TOKEN_POOL_TRANSFORMER;
+        }
+
+        if (apiUrlHelp) {
+            apiUrlHelp.textContent = isCodexTokenPool
+                ? t('endpoints.codexTokenPoolApiUrlHelp')
+                : (authMode === AUTH_MODE_TOKEN_POOL ? t('endpoints.tokenPoolApiUrlHelp') : '');
+        }
+        if (transformerHelp) {
+            transformerHelp.textContent = isCodexTokenPool ? t('endpoints.codexLockedFieldTip') : '';
+        }
+        if (fetchBtn) {
+            fetchBtn.disabled = isTokenPool;
+            fetchBtn.title = isTokenPool ? t('endpoints.fetchModelsTokenPoolDisabled') : '';
+        }
     }
 
     async fetchModels() {
+        const authModeSelect = document.querySelector('select[name="authMode"]');
+        if (authModeSelect && isTokenPoolAuthMode(authModeSelect.value)) {
+            notifications.info(t('endpoints.fetchModelsTokenPoolDisabled'));
+            return;
+        }
+
         const apiUrlInput = document.querySelector('input[name="apiUrl"]');
         const apiKeyInput = document.querySelector('input[name="apiKey"]');
         const transformerSelect = document.querySelector('select[name="transformer"]');
@@ -433,7 +513,7 @@ class Endpoints {
 
         try {
             fetchBtn.disabled = true;
-            fetchBtn.textContent = 'Fetching...';
+            fetchBtn.textContent = t('endpoints.fetchingModels');
 
             const result = await api.fetchModels(apiUrl, apiKey, transformer);
 
@@ -447,7 +527,7 @@ class Endpoints {
             notifications.error(`${t('endpoints.failedToFetchModels')}: ${error.message}`);
         } finally {
             fetchBtn.disabled = false;
-            fetchBtn.textContent = 'Fetch Models';
+            fetchBtn.textContent = t('endpoints.fetchModels');
         }
     }
 
@@ -517,14 +597,25 @@ class Endpoints {
             name: formData.get('name'),
             apiUrl: formData.get('apiUrl'),
             apiKey: formData.get('apiKey'),
+            authMode: formData.get('authMode'),
             transformer: formData.get('transformer'),
             model: formData.get('model'),
             remark: formData.get('remark'),
             enabled: formData.get('enabled') === 'on'
         };
+        const authMode = data.authMode || AUTH_MODE_API_KEY;
+        data.authMode = authMode;
+
+        if (isTokenPoolAuthMode(authMode)) {
+            data.apiKey = '';
+        }
+        if (authMode === AUTH_MODE_CODEX_TOKEN_POOL) {
+            data.apiUrl = CODEX_TOKEN_POOL_API_URL;
+            data.transformer = CODEX_TOKEN_POOL_TRANSFORMER;
+        }
 
         // If editing and API key is ****, don't send it (keep existing)
-        if ((isEdit || isClone) && data.apiKey === '****') {
+        if (!isTokenPoolAuthMode(authMode) && (isEdit || isClone) && data.apiKey === '****') {
             delete data.apiKey;
         }
 
@@ -650,6 +741,7 @@ class Endpoints {
         const clonedEndpoint = {
             name: newName,
             apiUrl: endpoint.apiUrl,
+            authMode: endpoint.authMode || AUTH_MODE_API_KEY,
             transformer: endpoint.transformer,
             model: endpoint.model,
             remark: endpoint.remark,

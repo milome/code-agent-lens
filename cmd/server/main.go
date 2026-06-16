@@ -11,10 +11,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/milome/code-agent-lens/internal/observability"
 	"github.com/milome/code-agent-lens/internal/observability/viewer"
 	"github.com/milome/code-agent-lens/internal/proxy"
+	"github.com/milome/code-agent-lens/internal/runtimepaths"
 	"github.com/milome/code-agent-lens/internal/storage"
 )
 
@@ -32,13 +34,12 @@ func main() {
 	// Parse command line flags
 	portFlag := flag.Int("port", 0, "Force specific port (locked, cannot be changed via API)")
 	flag.Parse()
-	dataDir := resolveDataDir()
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		logger.Error("Failed to create data dir %s: %v", dataDir, err)
+	paths := runtimepaths.Resolve(os.UserHomeDir)
+	if err := os.MkdirAll(paths.DataDir, 0755); err != nil {
+		logger.Error("Failed to create data dir %s: %v", paths.DataDir, err)
 		os.Exit(1)
 	}
-	defaultDumpDir := filepath.Join(dataDir, "observability")
-	obsCfg := observability.LoadConfigFromEnv(defaultDumpDir)
+	obsCfg := observability.LoadConfigFromEnv(paths.ObservabilityDir)
 	obsRuntime, err := observability.Init(context.Background(), obsCfg, "headless")
 	if err != nil {
 		logger.Error("Failed to initialize observability runtime: %v", err)
@@ -46,12 +47,7 @@ func main() {
 	}
 	defer shutdownObservability(obsRuntime)
 
-	dbPath := os.Getenv("CODE_AGENT_LENS_DB_PATH")
-	if dbPath == "" {
-		dbPath = filepath.Join(dataDir, "code-agent-lens.db")
-	}
-
-	sqliteStorage, err := storage.NewSQLiteStorage(dbPath)
+	sqliteStorage, err := storage.NewSQLiteStorage(paths.DBPath)
 	if err != nil {
 		logger.Error("Failed to open SQLite storage: %v", err)
 		os.Exit(1)
@@ -104,7 +100,8 @@ func main() {
 	p := proxy.New(cfg, statsAdapter, sqliteStorage, deviceID)
 	p.SetObservabilityRuntime(obsRuntime)
 
-	portalServer, err := startDebugPortalServer(obsCfg, obsRuntime, resolveViewerPort())
+	viewerPort := resolveViewerPort()
+	portalServer, err := startDebugPortalServer(obsCfg, obsRuntime, viewerPort, runtimeSnapshotProvider(cfg, p, obsCfg.DumpDir, viewerPort))
 	if err != nil {
 		logger.Error("Failed to start Debug Portal: %v", err)
 		os.Exit(1)
@@ -145,7 +142,7 @@ func main() {
 		errCh <- p.StartWithMux(mux)
 	}()
 
-	logger.Info("CodeAgentLens headless API listening on :%d (data dir: %s, db: %s)", cfg.GetPort(), dataDir, dbPath)
+	logger.Info("CodeAgentLens headless API listening on :%d (data dir: %s, db: %s)", cfg.GetPort(), paths.DataDir, paths.DBPath)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -174,12 +171,12 @@ func shutdownObservability(rt *observability.Runtime) {
 	}
 }
 
-func startDebugPortalServer(obsCfg observability.Config, obsRuntime *observability.Runtime, port int) (*http.Server, error) {
+func startDebugPortalServer(obsCfg observability.Config, obsRuntime *observability.Runtime, port int, providers ...viewer.RuntimeSnapshotProvider) (*http.Server, error) {
 	if !obsCfg.ViewerEnabled {
 		return nil, nil
 	}
 	mux := http.NewServeMux()
-	viewer.Register(mux, obsCfg.DumpDir, true)
+	viewer.Register(mux, obsCfg.DumpDir, true, providers...)
 	handler := http.Handler(mux)
 	handler = viewer.Guard(handler)
 	if obsRuntime != nil {
@@ -233,16 +230,6 @@ func blockDebugViewerOnGateway(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("/debug/obs", handler)
 	mux.HandleFunc("/debug/obs/", handler)
-}
-
-func resolveDataDir() string {
-	if dir := os.Getenv("CODE_AGENT_LENS_DATA_DIR"); dir != "" {
-		return dir
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".CodeAgentLens")
-	}
-	return "/data"
 }
 
 func loadConfig(sqliteStorage *storage.SQLiteStorage) (*config.Config, error) {
@@ -316,6 +303,114 @@ func generateRandomPassword(length int) string {
 		return string(fallback)
 	}
 	return hex.EncodeToString(bytes)[:length]
+}
+
+func runtimeSnapshotProvider(cfg *config.Config, p *proxy.Proxy, dumpRoot string, viewerPort int) viewer.RuntimeSnapshotProvider {
+	return func() viewer.RuntimeSnapshot {
+		endpoints := cfg.GetEndpoints()
+		gatewayPort := cfg.GetPort()
+		currentName := ""
+		if p != nil {
+			endpoints = p.GetEndpointsSnapshot()
+			gatewayPort = p.GetPort()
+			currentName = p.GetCurrentEndpointName()
+		}
+
+		snapshots := make([]viewer.EndpointSnapshot, 0, len(endpoints))
+		enabledCount := 0
+		var active *viewer.EndpointSnapshot
+		for _, endpoint := range endpoints {
+			if endpoint.Enabled {
+				enabledCount++
+			}
+			snapshot := viewer.EndpointSnapshot{
+				Name:             endpoint.Name,
+				AuthMode:         config.NormalizeAuthMode(endpoint.AuthMode),
+				Enabled:          endpoint.Enabled,
+				Current:          endpoint.Name == currentName,
+				Transformer:      endpoint.Transformer,
+				Model:            endpoint.Model,
+				BaseURLHost:      endpointBaseURLHost(endpoint.APIUrl),
+				Health:           endpointHealth(endpoint, currentName),
+				LastSwitchReason: "current proxy index",
+			}
+			snapshots = append(snapshots, snapshot)
+			if snapshot.Current {
+				activeCopy := snapshot
+				active = &activeCopy
+			}
+		}
+
+		return viewer.RuntimeSnapshot{
+			Status:           runtimeStatus(enabledCount),
+			Mode:             runtimeMode(),
+			GatewayListener:  publicGatewayURL(gatewayPort),
+			PortalListener:   publicPortalURL(viewerPort),
+			DumpRoot:         dumpRoot,
+			TotalEndpoints:   len(endpoints),
+			EnabledEndpoints: enabledCount,
+			ActiveEndpoint:   active,
+			Endpoints:        snapshots,
+			UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
+		}
+	}
+}
+
+func publicPortalURL(port int) string {
+	if value := strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL")); value != "" {
+		return strings.TrimRight(value, "/")
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d/debug/obs", port)
+}
+
+func publicGatewayURL(port int) string {
+	if value := strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_GATEWAY_PUBLIC_URL")); value != "" {
+		return strings.TrimRight(value, "/")
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", port)
+}
+
+func runtimeStatus(enabledCount int) string {
+	if enabledCount == 0 {
+		return "degraded"
+	}
+	return "healthy"
+}
+
+func runtimeMode() string {
+	if mode := strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_RUNTIME_MODE")); mode != "" {
+		return mode
+	}
+	if strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_DATA_DIR")) == "/data" {
+		return "docker_compose"
+	}
+	return "headless"
+}
+
+func endpointHealth(endpoint config.Endpoint, currentName string) string {
+	if !endpoint.Enabled {
+		return "disabled"
+	}
+	if endpoint.Name == currentName {
+		return "active"
+	}
+	return "configured"
+}
+
+func endpointBaseURLHost(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	normalized := trimmed
+	if !strings.HasPrefix(normalized, "http://") && !strings.HasPrefix(normalized, "https://") {
+		normalized = "https://" + normalized
+	}
+	parsed, err := url.Parse(normalized)
+	if err != nil || parsed == nil || parsed.Host == "" {
+		return trimmed
+	}
+	return parsed.Host
 }
 
 func observabilitySmokeModel() string {

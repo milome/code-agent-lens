@@ -9,8 +9,7 @@ services:
       - "3010:3000"
       - "3011:3011"
     volumes:
-      - ./code-agent-lens/:/data
-      - ../../.tmp/docker-observability:/data/observability
+      - "D:/DevTools/code-agent-lens/data:/data"
     environment:
       - CODE_AGENT_LENS_PORT=3000
       - CODE_AGENT_LENS_DATA_DIR=/data

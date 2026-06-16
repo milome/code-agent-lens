@@ -38,7 +38,7 @@ It's an estimate based on text length, may differ from actual billing.
 
 **Q: How to backup configuration?**
 
-Manually copy `~/.CodeAgentLens/code-agent-lens.db`.
+Manually copy the canonical database at `D:\DevTools\code-agent-lens\data\code-agent-lens.db`.
 
 Cloud backup providers are deferred from the first public release.
 
@@ -48,4 +48,4 @@ In list order, can be adjusted by drag and drop.
 
 **Q: Is data secure?**
 
-All data is stored locally in `~/.CodeAgentLens/`, API keys are never sent to third parties.
+All CodeAgentLens runtime data is stored locally under `D:\DevTools\code-agent-lens\data`, and API keys are never sent to third parties.

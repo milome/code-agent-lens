@@ -286,6 +286,28 @@ func (p *Proxy) GetCurrentEndpointName() string {
 	return endpoint.Name
 }
 
+// GetEndpointsSnapshot returns the currently installed endpoint configuration.
+func (p *Proxy) GetEndpointsSnapshot() []config.Endpoint {
+	p.mu.RLock()
+	cfg := p.config
+	p.mu.RUnlock()
+	if cfg == nil {
+		return nil
+	}
+	return cfg.GetEndpoints()
+}
+
+// GetPort returns the currently installed listener port.
+func (p *Proxy) GetPort() int {
+	p.mu.RLock()
+	cfg := p.config
+	p.mu.RUnlock()
+	if cfg == nil {
+		return 0
+	}
+	return cfg.GetPort()
+}
+
 // SetCurrentEndpoint manually switches to a specific endpoint by name
 // Returns error if endpoint not found or not enabled
 // Thread-safe and cancels ongoing requests on the old endpoint

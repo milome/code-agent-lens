@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/milome/code-agent-lens/internal/config"
+	"github.com/milome/code-agent-lens/internal/proxy"
 	"github.com/milome/code-agent-lens/internal/transformer"
 	"github.com/milome/code-agent-lens/internal/transformer/convert"
 )
@@ -92,5 +95,64 @@ func TestHandleObservabilitySmokeUpstreamStreamingResponseTransformsToCompleteCl
 		if !strings.Contains(body, want) {
 			t.Fatalf("transformed Claude SSE missing %q: %s", want, body)
 		}
+	}
+}
+
+func TestRuntimeSnapshotProviderSanitizesEndpointInventory(t *testing.T) {
+	t.Setenv("CODE_AGENT_LENS_RUNTIME_MODE", "docker_compose")
+
+	cfg := config.DefaultConfig()
+	cfg.UpdatePort(3010)
+	cfg.UpdateEndpoints([]config.Endpoint{
+		{
+			Name:        "Rightcode",
+			APIUrl:      "https://right.codes/v1",
+			APIKey:      "sk-secret-rightcode",
+			AuthMode:    config.AuthModeAPIKey,
+			Enabled:     true,
+			Transformer: "openai2",
+			Model:       "gpt-5.5",
+		},
+		{
+			Name:        "Disabled",
+			APIUrl:      "example.invalid",
+			APIKey:      "sk-secret-disabled",
+			AuthMode:    config.AuthModeAPIKey,
+			Enabled:     false,
+			Transformer: "claude",
+		},
+	})
+	p := proxy.New(cfg, nil, nil, "test-device")
+
+	snapshot := runtimeSnapshotProvider(cfg, p, t.TempDir(), 3011)()
+	if snapshot.Status != "healthy" {
+		t.Fatalf("status = %q, want healthy", snapshot.Status)
+	}
+	if snapshot.Mode != "docker_compose" {
+		t.Fatalf("mode = %q, want docker_compose", snapshot.Mode)
+	}
+	if snapshot.GatewayListener != "http://127.0.0.1:3010" {
+		t.Fatalf("gateway listener = %q", snapshot.GatewayListener)
+	}
+	if snapshot.PortalListener != "http://127.0.0.1:3011/debug/obs" {
+		t.Fatalf("portal listener = %q", snapshot.PortalListener)
+	}
+	if snapshot.TotalEndpoints != 2 || snapshot.EnabledEndpoints != 1 {
+		t.Fatalf("endpoint counts = %d/%d, want 1/2 enabled/total", snapshot.EnabledEndpoints, snapshot.TotalEndpoints)
+	}
+	if snapshot.ActiveEndpoint == nil || snapshot.ActiveEndpoint.Name != "Rightcode" || snapshot.ActiveEndpoint.BaseURLHost != "right.codes" {
+		t.Fatalf("active endpoint = %#v", snapshot.ActiveEndpoint)
+	}
+	if len(snapshot.Endpoints) != 2 || snapshot.Endpoints[1].Health != "disabled" {
+		t.Fatalf("endpoints = %#v", snapshot.Endpoints)
+	}
+
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	body := string(raw)
+	if strings.Contains(body, "sk-secret") || strings.Contains(body, "apiKey") {
+		t.Fatalf("runtime snapshot must not expose endpoint secrets: %s", body)
 	}
 }

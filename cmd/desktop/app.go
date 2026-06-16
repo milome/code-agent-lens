@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/milome/code-agent-lens/internal/logger"
 	"github.com/milome/code-agent-lens/internal/observability"
 	"github.com/milome/code-agent-lens/internal/proxy"
+	"github.com/milome/code-agent-lens/internal/runtimepaths"
 	"github.com/milome/code-agent-lens/internal/service"
 	"github.com/milome/code-agent-lens/internal/storage"
 	"github.com/milome/code-agent-lens/internal/tray"
@@ -60,13 +62,15 @@ type desktopImportCredentialsRequest struct {
 
 // App struct
 type App struct {
-	ctx      context.Context
-	config   *config.Config
-	proxy    *proxy.Proxy
-	storage  *storage.SQLiteStorage
-	obs      *observability.Runtime
-	ctxMutex sync.RWMutex
-	trayIcon []byte
+	ctx              context.Context
+	config           *config.Config
+	proxy            *proxy.Proxy
+	storage          *storage.SQLiteStorage
+	obs              *observability.Runtime
+	ctxMutex         sync.RWMutex
+	trayIcon         []byte
+	paths            runtimepaths.Paths
+	proxyStartCancel context.CancelFunc
 
 	// Services
 	stats    *service.StatsService
@@ -80,8 +84,8 @@ type App struct {
 }
 
 // NewApp creates a new App application struct
-func NewApp(trayIcon []byte) *App {
-	return &App{trayIcon: trayIcon}
+func NewApp(trayIcon []byte, paths runtimepaths.Paths) *App {
+	return &App{trayIcon: trayIcon, paths: paths}
 }
 
 // startup is called when the app starts
@@ -98,19 +102,12 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		logger.Error("Failed to get home directory: %v", err)
-		homeDir = "."
-	}
-	configDir := filepath.Join(homeDir, ".CodeAgentLens")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	paths := a.paths
+	if err := ensureDesktopRuntimePaths(paths); err != nil {
 		logger.Error("Failed to create config directory: %v", err)
 	}
 
-	dbPath := filepath.Join(configDir, "code-agent-lens.db")
-
-	sqliteStorage, err := storage.NewSQLiteStorage(dbPath)
+	sqliteStorage, err := storage.NewSQLiteStorage(paths.DBPath)
 	if err != nil {
 		logger.Error("Failed to initialize storage: %v", err)
 		a.config = config.DefaultConfig()
@@ -130,7 +127,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.config = cfg
 
-	obsCfg := observability.LoadConfigFromEnv(filepath.Join(configDir, "observability"))
+	obsCfg := observability.LoadConfigFromEnv(paths.ObservabilityDir)
 	obsRuntime, obsErr := observability.Init(ctx, obsCfg, a.GetVersion())
 	if obsErr != nil {
 		logger.Error("Failed to initialize observability runtime: %v", obsErr)
@@ -180,20 +177,61 @@ func (a *App) startup(ctx context.Context) {
 
 	a.initTray()
 
-	go func() {
-		if err := a.proxy.Start(); err != nil {
-			logger.Error("Proxy server error: %v", err)
-		}
-	}()
+	proxyStartCtx, cancelProxyStart := context.WithCancel(context.Background())
+	a.proxyStartCancel = cancelProxyStart
+	go runDesktopProxyWithRetry(proxyStartCtx, a.proxy.Start, 2*time.Second, func(err error, retryDelay time.Duration) {
+		logger.Error("Proxy server error: %v", err)
+		logger.Info("Proxy server will retry in %s", retryDelay)
+	})
 
-	time.Sleep(300 * time.Millisecond)
-	runtime.WindowShow(ctx)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		runtime.WindowShow(ctx)
+	}()
 
 	logger.Info("Application started successfully")
 }
 
+func runDesktopProxyWithRetry(ctx context.Context, start func() error, retryDelay time.Duration, onRetry func(error, time.Duration)) {
+	if retryDelay <= 0 {
+		retryDelay = time.Second
+	}
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		err := start()
+		if err == nil || errors.Is(err, http.ErrServerClosed) || ctx.Err() != nil {
+			return
+		}
+
+		if onRetry != nil {
+			onRetry(err, retryDelay)
+		}
+
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
+	if a.proxyStartCancel != nil {
+		a.proxyStartCancel()
+		a.proxyStartCancel = nil
+	}
 	if a.proxy != nil {
 		a.proxy.Stop()
 	}

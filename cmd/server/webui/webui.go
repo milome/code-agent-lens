@@ -47,6 +47,10 @@ func (w *WebUI) RegisterRoutes(mux *http.ServeMux) error {
 	uiHandler := authMiddleware(http.FileServer(http.FS(uiSubFS)))
 	mux.Handle("/ui/", http.StripPrefix("/ui/", uiHandler))
 
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})

@@ -400,28 +400,18 @@ func (h *Handler) handleCurrentEndpoint(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	endpoints := h.config.GetEndpoints()
-	if len(endpoints) == 0 {
-		WriteError(w, http.StatusNotFound, "No endpoints configured")
+	currentName := ""
+	if h.proxy != nil {
+		currentName = h.proxy.GetCurrentEndpointName()
+	}
+
+	if currentName == "" {
+		WriteError(w, http.StatusNotFound, "No current endpoint")
 		return
 	}
 
-	// Get enabled endpoints
-	var enabledEndpoints []config.Endpoint
-	for _, ep := range endpoints {
-		if ep.Enabled {
-			enabledEndpoints = append(enabledEndpoints, ep)
-		}
-	}
-
-	if len(enabledEndpoints) == 0 {
-		WriteError(w, http.StatusNotFound, "No enabled endpoints")
-		return
-	}
-
-	// Return first enabled endpoint as current
 	WriteSuccess(w, map[string]interface{}{
-		"name": enabledEndpoints[0].Name,
+		"name": currentName,
 	})
 }
 
@@ -440,6 +430,11 @@ func (h *Handler) handleSwitchEndpoint(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		WriteError(w, http.StatusBadRequest, "Endpoint name is required")
+		return
+	}
 
 	// Verify endpoint exists
 	endpoints := h.config.GetEndpoints()
@@ -453,6 +448,14 @@ func (h *Handler) handleSwitchEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	if !found {
 		WriteError(w, http.StatusNotFound, "Endpoint not found or not enabled")
+		return
+	}
+	if h.proxy == nil {
+		WriteError(w, http.StatusInternalServerError, "Proxy unavailable")
+		return
+	}
+	if err := h.proxy.SetCurrentEndpoint(req.Name); err != nil {
+		WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

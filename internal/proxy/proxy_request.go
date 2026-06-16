@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -121,6 +122,14 @@ func (p *Proxy) newProxyRequestContext(w http.ResponseWriter, r *http.Request) (
 		return nil, err
 	}
 	defer r.Body.Close()
+	if strings.TrimSpace(string(bodyBytes)) == "" {
+		writeInvalidRequestError(w, "request body is required")
+		return nil, errInvalidProxyRequest
+	}
+	if !json.Valid(bodyBytes) {
+		writeInvalidRequestError(w, "invalid JSON request body")
+		return nil, errInvalidProxyRequest
+	}
 
 	clientFormat := detectClientFormat(r.URL.Path)
 	requestContext := r.Context()
@@ -718,3 +727,5 @@ func truncateString(value string, max int) string {
 }
 
 var errNoEnabledEndpoints = io.EOF
+
+var errInvalidProxyRequest = errors.New("invalid proxy request")

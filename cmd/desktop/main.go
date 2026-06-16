@@ -4,7 +4,6 @@ import (
 	"embed"
 	"log"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/milome/code-agent-lens/internal/singleinstance"
@@ -50,26 +49,26 @@ func main() {
 		trayIcon = trayIconOther
 	}
 
-	app := NewApp(trayIcon)
+	paths := resolveDesktopRuntimePaths(os.Args[1:], os.UserHomeDir)
+	if err := ensureDesktopRuntimePaths(paths); err != nil {
+		log.Printf("Failed to prepare runtime paths: %v", err)
+	}
+	app := NewApp(trayIcon, paths)
 
 	// Load window size from SQLite storage
 	windowWidth, windowHeight := 1024, 768 // defaults
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		dbPath := filepath.Join(homeDir, ".CodeAgentLens", "code-agent-lens.db")
-		if sqliteStorage, err := storage.NewSQLiteStorage(dbPath); err == nil {
-			if w, err := sqliteStorage.GetConfig("windowWidth"); err == nil && w != "" {
-				if width, err := strconv.Atoi(w); err == nil && width > 0 {
-					windowWidth = width
-				}
+	if sqliteStorage, err := storage.NewSQLiteStorage(paths.DBPath); err == nil {
+		if w, err := sqliteStorage.GetConfig("windowWidth"); err == nil && w != "" {
+			if width, err := strconv.Atoi(w); err == nil && width > 0 {
+				windowWidth = width
 			}
-			if h, err := sqliteStorage.GetConfig("windowHeight"); err == nil && h != "" {
-				if height, err := strconv.Atoi(h); err == nil && height > 0 {
-					windowHeight = height
-				}
-			}
-			sqliteStorage.Close()
 		}
+		if h, err := sqliteStorage.GetConfig("windowHeight"); err == nil && h != "" {
+			if height, err := strconv.Atoi(h); err == nil && height > 0 {
+				windowHeight = height
+			}
+		}
+		sqliteStorage.Close()
 	}
 
 	err = wails.Run(&options.App{

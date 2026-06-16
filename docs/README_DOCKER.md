@@ -12,8 +12,10 @@
 
 3. 运行与编排
 	- [docker-compose.yml](../cmd/server/docker-compose.yml) 仅映射 API 端口（示例 `3010:3000`），挂载数据卷 `/data`，健康检查指向 `/health`。
+	- 本机规范宿主数据目录固定为 `D:\DevTools\code-agent-lens\data`。compose 将它映射为容器内 `/data`，因此容器内 `/data/code-agent-lens.db` 对应宿主 `D:\DevTools\code-agent-lens\data\code-agent-lens.db`。
 	- 默认环境：`CODE_AGENT_LENS_DATA_DIR=/data`，`CODE_AGENT_LENS_DB_PATH=/data/code-agent-lens.db`，`CODE_AGENT_LENS_PORT=3000`。
-	- 本地 observability 调试环境：`CODE_AGENT_LENS_OTEL_ENABLED=true`、`CODE_AGENT_LENS_OBS_LOCAL_DEBUG=true`、`CODE_AGENT_LENS_OBS_DUMP_ENABLED=true`、`CODE_AGENT_LENS_OBS_DUMP_DIR=/data/observability`、`CODE_AGENT_LENS_OBS_VIEWER_ENABLED=true`、`CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL=http://127.0.0.1:3011/debug/obs`。compose 文件从 `cmd/server` 目录把 `../../.tmp/docker-observability` 挂载到容器 `/data/observability`，即仓库根目录 `.tmp/docker-observability`。
+	- 本地 observability 调试环境：`CODE_AGENT_LENS_OTEL_ENABLED=true`、`CODE_AGENT_LENS_OBS_LOCAL_DEBUG=true`、`CODE_AGENT_LENS_OBS_DUMP_ENABLED=true`、`CODE_AGENT_LENS_OBS_DUMP_DIR=/data/observability`、`CODE_AGENT_LENS_OBS_VIEWER_ENABLED=true`、`CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL=http://127.0.0.1:3011/debug/obs`。容器内 `/data/observability` 对应宿主 `D:\DevTools\code-agent-lens\data\observability`。
+	- `D:\DevTools\shared\ccnexus` 是旧 ccNexus 迁移来源，不是 CodeAgentLens Docker 或 native 的当前运行目录。
 	- Jaeger 可用 `docs/observability/jaeger-ui-config.json` 的 `linkPatterns` 将 `code-agent-lens_obs_ref` 链接到 `http://127.0.0.1:3011/debug/obs`。Grafana Tempo 可配置 Trace correlation，使用 `traceID` 和 `spanID` 从 trace 跳转到本地 Debug Viewer。
 	- Debug Viewer 入口包含 `/debug/obs/tool/jaeger` 和 `/debug/obs/tool/grafana` wrapper 页面。Grafana wrapper 只有在 Grafana 服务设置 `GF_SECURITY_ALLOW_EMBEDDING=true` 时才能在 iframe 中显示；未启用时仍保留 Portal 导航和原生新标签页打开链接。当前观测到的 Grafana compose 路径是 `deploy/observability/docker-compose.observability.yaml`，该路径位于本仓库写入范围之外。
 

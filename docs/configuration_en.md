@@ -67,4 +67,10 @@ Cloud backup providers are deferred from the first public release and are not pa
 
 ## Data Storage Location
 
-- Database: `~/.CodeAgentLens/code-agent-lens.db`
+- Canonical local data directory: `D:\DevTools\code-agent-lens\data`
+- Database: `D:\DevTools\code-agent-lens\data\code-agent-lens.db`
+- Observability dump: `D:\DevTools\code-agent-lens\data\observability`
+
+Docker maps `D:\DevTools\code-agent-lens\data` to `/data`, so `/data/code-agent-lens.db` inside Docker is the same host database used by native when native is started with the canonical data directory.
+
+`D:\DevTools\shared\ccnexus` is a legacy ccNexus migration source, not the active CodeAgentLens runtime directory.

@@ -1,6 +1,6 @@
 # CodeAgentLens
 
-[English](README.md) | [简体中文](docs/README_ZH.md)
+[English](README_EN.md) | [简体中文](../README.md)
 
 CodeAgentLens is a local model-endpoint gateway and observability workbench for code agents. It gives Claude Code, Codex, and other OpenAI/Anthropic-compatible clients one local gateway while keeping traces, prompts, request artifacts, usage, endpoint decisions, and logs inspectable on the same machine.
 
@@ -19,13 +19,13 @@ Upstream: https://github.com/lich0821/ccNexus
 
 ## Architecture
 
-![CodeAgentLens Architecture](docs/images/diagrams/diagram-code-agent-lens-architecture-en.svg)
+![CodeAgentLens Architecture](images/diagrams/diagram-code-agent-lens-architecture-en.svg)
 
 *Figure 1: How code-agent traffic moves through the Gateway and becomes traces, dump artifacts, and Debug Portal links.*
 
 ## Deployment Diagram
 
-![CodeAgentLens Deployment Diagram](docs/images/diagrams/diagram-code-agent-lens-deployment-en.svg)
+![CodeAgentLens Deployment Diagram](images/diagrams/diagram-code-agent-lens-deployment-en.svg)
 
 *Figure 2: How the local Gateway, Debug Portal, dump root, SQLite store, and observability stack connect on a developer machine.*
 
@@ -47,15 +47,11 @@ CodeAgentLens separates traffic handling from observability access. The Gateway/
 
 ### Key Local Configuration
 
-CodeAgentLens local runtime data is canonicalized at `D:\DevTools\code-agent-lens\data`. The SQLite database is `D:\DevTools\code-agent-lens\data\code-agent-lens.db`, and Docker maps this host directory to `/data`. The legacy `D:\DevTools\shared\ccnexus` tree is a ccNexus migration source only, not a CodeAgentLens runtime directory. See [Runtime Paths](docs/runtime_paths.md).
-
 | Setting | Purpose |
 | --- | --- |
-| `CODE_AGENT_LENS_DATA_DIR=D:\DevTools\code-agent-lens\data` | Canonical native data directory. Docker maps the same host directory to `/data`. |
-| `CODE_AGENT_LENS_DB_PATH=D:\DevTools\code-agent-lens\data\code-agent-lens.db` | Canonical native SQLite database path. Inside Docker this is `/data/code-agent-lens.db`. |
 | `CODE_AGENT_LENS_OBS_LOCAL_DEBUG=true` | Enables the local debug policy. |
 | `CODE_AGENT_LENS_OBS_DUMP_ENABLED=true` | Enables local request artifact dumps. |
-| `CODE_AGENT_LENS_OBS_DUMP_DIR=D:\DevTools\code-agent-lens\data\observability` | Canonical native dump root. Inside Docker this is `/data/observability`. |
+| `CODE_AGENT_LENS_OBS_DUMP_DIR=<path>` | Sets the dump root read by the Debug Portal; the Docker profile uses `/data/observability`. |
 | `CODE_AGENT_LENS_OBS_VIEWER_ENABLED=true` | Enables the Debug Portal. |
 | `CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL=http://127.0.0.1:3011/debug/obs` | Writes the local viewer URL into trace attributes and artifact links. |
 | `CODE_AGENT_LENS_OBS_CAPTURE_HEADERS=all` | Captures request and upstream headers; secret headers are redacted by default. |
@@ -104,23 +100,11 @@ Run static source validation:
 go run ./cmd/code-agent-lens obs validate --deployment-profile local_debug --profile deploy/observability/stack.local.yaml --evidence-dir .tmp/release-gate/observability/native
 ```
 
-### Native Runtime Plus Docker Observability
-
-Use this mode when you want the native CodeAgentLens process on `3010` and `3011`, with Docker providing Jaeger, Grafana, Prometheus, Tempo, and the OTel Collector.
-
-Start the observability-only Docker stack first:
-
-```powershell
-docker compose -p observability -f deploy/observability/docker-compose.observability.yaml up -d
-```
-
-Then start the native local debug runtime when ports `3010` and `3011` are free:
+Start the native local debug runtime when ports `3010` and `3011` are free:
 
 ```powershell
 go run ./cmd/code-agent-lens obs up --mode native --deployment-profile local_debug --profile deploy/observability/stack.local.yaml --evidence-dir .tmp/release-gate/observability/native
 ```
-
-The native Go command does not start Docker containers. It starts only the CodeAgentLens runtime and Debug Portal, uses the canonical local database at `D:\DevTools\code-agent-lens\data\code-agent-lens.db`, writes artifacts under `D:\DevTools\code-agent-lens\data\observability`, and exports OTEL data to `http://127.0.0.1:4318`.
 
 Run full-chain synthetic trace validation after the runtime is up:
 
@@ -140,20 +124,10 @@ Check that the official ports are free:
 go run ./cmd/code-agent-lens obs ports --expect-free 3010,3011 --evidence-dir .tmp/release-gate/observability/native-stop
 ```
 
-### Full Docker Runtime
-
-Use this mode instead of native when you want both CodeAgentLens and the observability stack inside Docker. Do not run it alongside the native runtime on `3010` and `3011`.
-
-Start the full stack through the CLI:
+For Docker mode, use the bundled compose profile after the official ports are available:
 
 ```powershell
-go run ./cmd/code-agent-lens obs up --mode docker --deployment-profile local_debug --profile deploy/observability/stack.local.yaml --evidence-dir .tmp/release-gate/observability/docker
-```
-
-Equivalent direct compose command:
-
-```powershell
-docker compose -p observability -f deploy/observability/docker-compose.full.yaml up -d --build --remove-orphans
+docker compose -f deploy/observability/docker-compose.full.yaml up -d --build
 ```
 
 ## Common User Cases: Q/A

@@ -133,6 +133,18 @@ class APIClient {
     async updateLogLevel(logLevel) {
         return this.request('PUT', '/config/log-level', { logLevel });
     }
+
+    async getLogs({ level = 0, limit = 200 } = {}) {
+        const params = new URLSearchParams({
+            level: String(level),
+            limit: String(limit)
+        });
+        return this.request('GET', `/logs?${params.toString()}`);
+    }
+
+    async clearLogs() {
+        return this.request('DELETE', '/logs');
+    }
 }
 
 export const api = new APIClient();

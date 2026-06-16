@@ -67,4 +67,10 @@
 
 ## 数据存储位置
 
-- 数据库：`~/.CodeAgentLens/code-agent-lens.db`
+- 本机规范数据目录：`D:\DevTools\code-agent-lens\data`
+- 数据库：`D:\DevTools\code-agent-lens\data\code-agent-lens.db`
+- Observability dump：`D:\DevTools\code-agent-lens\data\observability`
+
+Docker 将 `D:\DevTools\code-agent-lens\data` 映射到容器内 `/data`，因此容器内 `/data/code-agent-lens.db` 与 native 使用同一个宿主数据库。
+
+`D:\DevTools\shared\ccnexus` 是旧 ccNexus 迁移来源，不是 CodeAgentLens 当前运行目录。

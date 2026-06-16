@@ -5,6 +5,7 @@ import { dashboard } from './components/dashboard.js';
 import { endpoints } from './components/endpoints.js';
 import { stats } from './components/stats.js';
 import { testing } from './components/testing.js';
+import { logs } from './components/logs.js';
 import zhCN from './i18n/zh-CN.js';
 import en from './i18n/en.js';
 
@@ -111,6 +112,7 @@ function init() {
     router.register('endpoints', endpoints);
     router.register('stats', stats);
     router.register('testing', testing);
+    router.register('logs', logs);
 
     // Initialize theme
     initTheme();

@@ -3,8 +3,10 @@ package viewer
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +32,16 @@ func TestViewerShowsTraceOverviewPromptBodyAndStream(t *testing.T) {
 	req := createViewerFixture(t, root)
 
 	mux := http.NewServeMux()
-	Register(mux, root, true)
+	Register(mux, root, true, func() RuntimeSnapshot {
+		return RuntimeSnapshot{
+			Status:          "healthy",
+			Mode:            "docker_compose",
+			GatewayListener: "http://127.0.0.1:3010",
+			PortalListener:  "http://127.0.0.1:3011/debug/obs",
+			DumpRoot:        root,
+			UpdatedAt:       "2026-06-17T00:00:00Z",
+		}
+	})
 	handler := Guard(mux)
 
 	traceResp := request(handler, "/debug/obs/trace/"+req.TraceID)
@@ -129,8 +140,8 @@ func TestViewerShowsPortalWithToolLinks(t *testing.T) {
 		"http://127.0.0.1:3200/status",
 		"OTel Collector",
 		"http://127.0.0.1:8888/metrics",
-		"/health",
-		"/ui/",
+		"http://127.0.0.1:3010/health",
+		"http://127.0.0.1:3010/ui/",
 		req.RequestID,
 	} {
 		if !strings.Contains(body, want) {
@@ -143,8 +154,8 @@ func TestViewerShowsPortalWithToolLinks(t *testing.T) {
 		"http://127.0.0.1:9090/graph",
 		"http://127.0.0.1:3200/status",
 		"http://127.0.0.1:8888/metrics",
-		"/health",
-		"/ui/",
+		"http://127.0.0.1:3010/health",
+		"http://127.0.0.1:3010/ui/",
 	} {
 		want := `href="` + href + `" target="_blank" rel="noopener noreferrer"`
 		if !strings.Contains(body, want) {
@@ -155,6 +166,147 @@ func TestViewerShowsPortalWithToolLinks(t *testing.T) {
 		if strings.Contains(body, `href="`+href+`" target="_blank"`) {
 			t.Fatalf("portal internal link should stay in same tab: %s", body)
 		}
+	}
+	assertPortalLinksUseExpectedPorts(t, body)
+}
+
+func TestViewerShowsRuntimeStatusAndActiveEndpoint(t *testing.T) {
+	root := t.TempDir()
+
+	mux := http.NewServeMux()
+	Register(mux, root, true, func() RuntimeSnapshot {
+		return RuntimeSnapshot{
+			Status:           "healthy",
+			Mode:             "docker_compose",
+			GatewayListener:  "http://127.0.0.1:3010",
+			PortalListener:   "http://127.0.0.1:3011/debug/obs",
+			DumpRoot:         root,
+			TotalEndpoints:   2,
+			EnabledEndpoints: 1,
+			ActiveEndpoint: &EndpointSnapshot{
+				Name:             "Rightcode",
+				AuthMode:         "api_key",
+				Enabled:          true,
+				Current:          true,
+				Transformer:      "openai2",
+				Model:            "gpt-5.5",
+				BaseURLHost:      "right.codes",
+				Health:           "active",
+				LastSwitchReason: "current proxy index",
+			},
+			Endpoints: []EndpointSnapshot{
+				{
+					Name:        "Rightcode",
+					Enabled:     true,
+					Current:     true,
+					Transformer: "openai2",
+					Model:       "gpt-5.5",
+					BaseURLHost: "right.codes",
+					Health:      "active",
+				},
+				{
+					Name:        "Disabled",
+					Enabled:     false,
+					Transformer: "claude",
+					BaseURLHost: "example.invalid",
+					Health:      "disabled",
+				},
+			},
+			UpdatedAt: "2026-06-16T12:00:00Z",
+		}
+	})
+	handler := Guard(mux)
+
+	portalResp := request(handler, "/debug/obs")
+	if portalResp.Code != http.StatusOK {
+		t.Fatalf("portal status=%d body=%s", portalResp.Code, portalResp.Body.String())
+	}
+	portalBody := portalResp.Body.String()
+	for _, want := range []string{"Runtime", "Active Endpoint", "Rightcode", "/debug/obs/runtime"} {
+		if !strings.Contains(portalBody, want) {
+			t.Fatalf("portal missing %q: %s", want, portalBody)
+		}
+	}
+
+	pageResp := request(handler, "/debug/obs/runtime")
+	if pageResp.Code != http.StatusOK {
+		t.Fatalf("runtime status=%d body=%s", pageResp.Code, pageResp.Body.String())
+	}
+	pageBody := pageResp.Body.String()
+	for _, want := range []string{
+		"Runtime Status",
+		"Active Endpoint",
+		"Current Endpoint",
+		"Rightcode",
+		"right.codes",
+		"docker_compose",
+		"http://127.0.0.1:3011/debug/obs",
+	} {
+		if !strings.Contains(pageBody, want) {
+			t.Fatalf("runtime page missing %q: %s", want, pageBody)
+		}
+	}
+	if strings.Contains(pageBody, "apiKey") || strings.Contains(pageBody, "sk-") {
+		t.Fatalf("runtime page must not expose secrets: %s", pageBody)
+	}
+	assertPortalLinksUseExpectedPorts(t, pageBody)
+
+	statusResp := request(handler, "/debug/obs/api/runtime/status")
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("runtime api status=%d body=%s", statusResp.Code, statusResp.Body.String())
+	}
+	statusBody := statusResp.Body.String()
+	for _, want := range []string{`"mode":"docker_compose"`, `"enabledEndpoints":1`, `"baseUrlHost":"right.codes"`} {
+		if !strings.Contains(statusBody, want) {
+			t.Fatalf("runtime api missing %q: %s", want, statusBody)
+		}
+	}
+	if strings.Contains(statusBody, "apiKey") || strings.Contains(statusBody, "sk-") {
+		t.Fatalf("runtime api must not expose secrets: %s", statusBody)
+	}
+
+	activeResp := request(handler, "/debug/obs/api/endpoints/active")
+	if activeResp.Code != http.StatusOK {
+		t.Fatalf("active api status=%d body=%s", activeResp.Code, activeResp.Body.String())
+	}
+	activeBody := activeResp.Body.String()
+	for _, want := range []string{`"activeEndpoint"`, `"name":"Rightcode"`, `"baseUrlHost":"right.codes"`} {
+		if !strings.Contains(activeBody, want) {
+			t.Fatalf("active api missing %q: %s", want, activeBody)
+		}
+	}
+}
+
+func TestViewerPagesKeepGatewayAndPortalLinksOnSeparatePorts(t *testing.T) {
+	root := t.TempDir()
+	createViewerFixture(t, root)
+	mux := http.NewServeMux()
+	Register(mux, root, true, func() RuntimeSnapshot {
+		return RuntimeSnapshot{
+			Status:           "healthy",
+			Mode:             "docker_compose",
+			GatewayListener:  "http://127.0.0.1:3010",
+			PortalListener:   "http://127.0.0.1:3011/debug/obs",
+			DumpRoot:         root,
+			TotalEndpoints:   1,
+			EnabledEndpoints: 1,
+			UpdatedAt:        "2026-06-17T00:00:00Z",
+		}
+	})
+	handler := Guard(mux)
+
+	for _, path := range []string{
+		"/debug/obs",
+		"/debug/obs/runtime",
+		"/debug/obs/prompts",
+		"/debug/obs/tool/jaeger",
+		"/debug/obs/tool/grafana",
+	} {
+		resp := request(handler, path)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, resp.Code, resp.Body.String())
+		}
+		assertPortalLinksUseExpectedPorts(t, resp.Body.String())
 	}
 }
 
@@ -729,6 +881,36 @@ func request(handler http.Handler, path string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
+}
+
+func assertPortalLinksUseExpectedPorts(t *testing.T, body string) {
+	t.Helper()
+	if strings.Contains(body, ":3021") {
+		t.Fatalf("page must not link to legacy 3021 port: %s", body)
+	}
+	portalBase, err := url.Parse("http://127.0.0.1:3011/debug/obs")
+	if err != nil {
+		t.Fatalf("parse portal base: %v", err)
+	}
+	linkPattern := regexp.MustCompile(`(?i)(href|src|action)="([^"]+)"`)
+	for _, match := range linkPattern.FindAllStringSubmatch(body, -1) {
+		raw := strings.ReplaceAll(match[2], "&amp;", "&")
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("parse link %q: %v", raw, err)
+		}
+		resolved := portalBase.ResolveReference(parsed)
+		switch resolved.Port() {
+		case "3011":
+			if !strings.HasPrefix(resolved.Path, "/debug/obs") {
+				t.Fatalf("debug portal link points outside debug routes: raw=%q resolved=%s", raw, resolved.String())
+			}
+		case "3010":
+			if strings.HasPrefix(resolved.Path, "/debug/obs") {
+				t.Fatalf("gateway link points at debug route: raw=%q resolved=%s", raw, resolved.String())
+			}
+		}
+	}
 }
 
 func writeCodexRolloutFixture(t *testing.T, sessionsRoot string) {

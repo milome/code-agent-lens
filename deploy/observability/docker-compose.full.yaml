@@ -20,11 +20,11 @@ services:
       CODE_AGENT_LENS_OBS_CAPTURE_BODIES: all
       CODE_AGENT_LENS_OBS_CAPTURE_STREAM_EVENTS: all
       CODE_AGENT_LENS_OBS_PROMPT_EXTRACT: "true"
+      CODE_AGENT_LENS_BASIC_AUTH_ENABLED: "false"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: code-agent-lens
     volumes:
-      - code-agent-lens-data:/data
-      - code-agent-lens-observability:/data/observability
+      - "D:/DevTools/code-agent-lens/data:/data"
     depends_on:
       - otel-collector
   jaeger:
@@ -48,8 +48,6 @@ services:
       file: docker-compose.observability.yaml
       service: otel-collector
 volumes:
-  code-agent-lens-data:
-  code-agent-lens-observability:
   tempo-data:
   prometheus-data:
   grafana-data:

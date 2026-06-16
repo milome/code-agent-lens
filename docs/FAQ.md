@@ -38,7 +38,7 @@ Claude Code 请求中包含 Claude 模型名，代理需要知道转换为哪个
 
 **Q: 如何备份配置？**
 
-手动复制 `~/.CodeAgentLens/code-agent-lens.db`。
+手动复制规范数据库 `D:\DevTools\code-agent-lens\data\code-agent-lens.db`。
 
 云端备份提供商不属于首个公开版本支持范围。
 
@@ -48,4 +48,4 @@ Claude Code 请求中包含 Claude 模型名，代理需要知道转换为哪个
 
 **Q: 数据安全吗？**
 
-所有数据存储在本地 `~/.CodeAgentLens/`，API 密钥不会发送给第三方。
+所有 CodeAgentLens 运行数据存储在本机规范目录 `D:\DevTools\code-agent-lens\data`，API 密钥不会发送给第三方。

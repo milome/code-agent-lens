@@ -47,12 +47,12 @@ ENV CODE_AGENT_LENS_DB_PATH=/data/code-agent-lens.db
 ENV CODE_AGENT_LENS_BASIC_AUTH_ENABLED=true
 ENV CODE_AGENT_LENS_BASIC_AUTH_USERNAME=admin
 
-# Expose HTTP API port
-EXPOSE 3000
+# Expose HTTP API and Debug Portal ports used by standalone and full Docker modes
+EXPOSE 3000 3010 3011
 
 # Health check targets the API health endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider "http://localhost:${CODE_AGENT_LENS_PORT:-3000}/health" || exit 1
 
 # Volume for persistent data
 VOLUME ["/data"]

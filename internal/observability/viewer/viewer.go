@@ -35,9 +35,10 @@ type breadcrumbItem struct {
 }
 
 type pageOptions struct {
-	Title      string
-	Active     string
-	Breadcrumb []breadcrumbItem
+	Title          string
+	Active         string
+	Breadcrumb     []breadcrumbItem
+	GatewayBaseURL string
 }
 
 type promptRoleSummary struct {
@@ -91,6 +92,33 @@ type requestRecord struct {
 	sequence  int64
 }
 
+type RuntimeSnapshotProvider func() RuntimeSnapshot
+
+type RuntimeSnapshot struct {
+	Status           string             `json:"status"`
+	Mode             string             `json:"mode"`
+	GatewayListener  string             `json:"gatewayListener,omitempty"`
+	PortalListener   string             `json:"portalListener,omitempty"`
+	DumpRoot         string             `json:"dumpRoot,omitempty"`
+	TotalEndpoints   int                `json:"totalEndpoints"`
+	EnabledEndpoints int                `json:"enabledEndpoints"`
+	ActiveEndpoint   *EndpointSnapshot  `json:"activeEndpoint,omitempty"`
+	Endpoints        []EndpointSnapshot `json:"endpoints,omitempty"`
+	UpdatedAt        string             `json:"updatedAt"`
+}
+
+type EndpointSnapshot struct {
+	Name             string `json:"name"`
+	AuthMode         string `json:"authMode,omitempty"`
+	Enabled          bool   `json:"enabled"`
+	Current          bool   `json:"current"`
+	Transformer      string `json:"transformer,omitempty"`
+	Model            string `json:"model,omitempty"`
+	BaseURLHost      string `json:"baseUrlHost,omitempty"`
+	Health           string `json:"health,omitempty"`
+	LastSwitchReason string `json:"lastSwitchReason,omitempty"`
+}
+
 type codexToolTurn struct {
 	TurnID      string
 	TraceID     string
@@ -112,9 +140,10 @@ type codexToolCall struct {
 }
 
 type server struct {
-	root       string
-	cacheMu    sync.Mutex
-	indexCache map[string]cachedPromptIndex
+	root            string
+	runtimeSnapshot RuntimeSnapshotProvider
+	cacheMu         sync.Mutex
+	indexCache      map[string]cachedPromptIndex
 }
 
 type cachedPromptIndex struct {
@@ -136,11 +165,18 @@ func Guard(next http.Handler) http.Handler {
 	})
 }
 
-func Register(mux *http.ServeMux, dumpRoot string, enabled bool) {
+func Register(mux *http.ServeMux, dumpRoot string, enabled bool, providers ...RuntimeSnapshotProvider) {
 	if !enabled || mux == nil {
 		return
 	}
-	s := &server{root: dumpRoot}
+	var provider RuntimeSnapshotProvider
+	if len(providers) > 0 {
+		provider = providers[0]
+	}
+	s := &server{root: dumpRoot, runtimeSnapshot: provider}
+	mux.HandleFunc("/debug/obs/api/runtime/status", s.handleRuntimeStatusAPI)
+	mux.HandleFunc("/debug/obs/api/endpoints/active", s.handleActiveEndpointAPI)
+	mux.HandleFunc("/debug/obs/runtime", s.handleRuntime)
 	mux.HandleFunc("/debug/obs", s.handlePortal)
 	mux.HandleFunc("/debug/obs/", s.handlePortal)
 	mux.HandleFunc("/debug/obs/prompts", s.handleGlobalPrompts)
@@ -195,6 +231,7 @@ func (s *server) handlePortal(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	runtimeSnapshot := s.currentRuntimeSnapshot()
 	records, err := s.findRecords(func(requestRecord) bool { return true })
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -214,14 +251,17 @@ func (s *server) handlePortal(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	var b strings.Builder
 	writePageStart(&b, pageOptions{
-		Title:      "CodeAgentLens Debug Portal",
-		Active:     "portal",
-		Breadcrumb: []breadcrumbItem{{Label: "Portal", Href: "/debug/obs"}},
+		Title:          "CodeAgentLens Debug Portal",
+		Active:         "portal",
+		Breadcrumb:     []breadcrumbItem{{Label: "Portal", Href: "/debug/obs"}},
+		GatewayBaseURL: runtimeSnapshot.GatewayListener,
 	})
 	b.WriteString("<section class=\"hero dashboard-hero\"><p class=\"eyebrow\">Local Observability</p><h1>CodeAgentLens Debug Portal</h1><p>Grafana-style control plane for local traces, prompt captures, and Docker observability tools.</p></section>")
 
 	b.WriteString("<section class=\"status-grid\" aria-label=\"Status tiles\">")
-	writeStatusTile(&b, "Health", "healthy endpoint", "/health", true)
+	writeStatusTile(&b, "Health", "healthy endpoint", gatewayLink(runtimeSnapshot.GatewayListener, "/health"), true)
+	writeStatusTile(&b, "Runtime", firstNonEmpty(runtimeSnapshot.Mode, "unknown"), "/debug/obs/runtime", false)
+	writeStatusTile(&b, "Active Endpoint", activeEndpointName(runtimeSnapshot), "/debug/obs/runtime", false)
 	writeStatusTile(&b, "Prompt Sessions", strconv.Itoa(len(promptRecords)), "/debug/obs", false)
 	writeStatusTile(&b, "LLM API Errors", strconv.Itoa(len(errorRecords)), "/debug/obs?view=errors", false)
 	writeStatusTile(&b, "Filtered Noise", strconv.Itoa(len(noiseRecords)), "/debug/obs?view=noise", false)
@@ -266,12 +306,91 @@ func (s *server) handlePortal(w http.ResponseWriter, r *http.Request) {
 	b.WriteString("</section>")
 
 	b.WriteString("<section class=\"panel quick-links\"><h2>Non-shell links</h2><p>These open in a new tab so the Portal remains available.</p><p>")
-	writeInlineLink(&b, "Health", "/health", true)
+	writeInlineLink(&b, "Health", gatewayLink(runtimeSnapshot.GatewayListener, "/health"), true)
 	b.WriteString(" ")
-	writeInlineLink(&b, "Web UI", "/ui/", true)
+	writeInlineLink(&b, "Web UI", gatewayLink(runtimeSnapshot.GatewayListener, "/ui/"), true)
 	b.WriteString("</p></section>")
 	writePageEnd(&b)
 	_, _ = w.Write([]byte(b.String()))
+}
+
+func (s *server) handleRuntime(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/debug/obs/runtime" {
+		http.NotFound(w, r)
+		return
+	}
+	snapshot := s.currentRuntimeSnapshot()
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	var b strings.Builder
+	writePageStart(&b, pageOptions{
+		Title:          "Runtime Status",
+		Active:         "runtime",
+		Breadcrumb:     []breadcrumbItem{{Label: "Portal", Href: "/debug/obs"}, {Label: "Runtime", Href: "/debug/obs/runtime"}},
+		GatewayBaseURL: snapshot.GatewayListener,
+	})
+	b.WriteString("<section class=\"hero\"><p class=\"eyebrow\">Runtime</p><h1>Runtime Status</h1><p>Current gateway runtime, active endpoint, and sanitized endpoint inventory.</p></section>")
+	b.WriteString("<section class=\"status-grid\" aria-label=\"Runtime status tiles\">")
+	writeStatusTile(&b, "Status", firstNonEmpty(snapshot.Status, "unknown"), "/debug/obs/api/runtime/status", true)
+	writeStatusTile(&b, "Mode", firstNonEmpty(snapshot.Mode, "unknown"), "/debug/obs/runtime", false)
+	writeStatusTile(&b, "Active Endpoint", activeEndpointName(snapshot), "/debug/obs/api/endpoints/active", true)
+	writeStatusTile(&b, "Enabled Endpoints", strconv.Itoa(snapshot.EnabledEndpoints)+"/"+strconv.Itoa(snapshot.TotalEndpoints), gatewayLink(snapshot.GatewayListener, "/ui/"), true)
+	b.WriteString("</section>")
+
+	b.WriteString("<section class=\"panel\"><div class=\"section-heading\"><p class=\"eyebrow\">Active</p><h2>Current Endpoint</h2></div>")
+	if snapshot.ActiveEndpoint == nil {
+		b.WriteString("<p class=\"empty-state\">No active endpoint is available. Check endpoint configuration and enabled state.</p>")
+	} else {
+		writeEndpointSnapshot(&b, *snapshot.ActiveEndpoint)
+	}
+	b.WriteString("</section>")
+
+	b.WriteString("<section class=\"panel\"><div class=\"section-heading\"><p class=\"eyebrow\">Listeners</p><h2>Runtime Details</h2></div><div class=\"grid\">")
+	writeRuntimeDetail(&b, "Gateway listener", snapshot.GatewayListener)
+	writeRuntimeDetail(&b, "Portal listener", snapshot.PortalListener)
+	writeRuntimeDetail(&b, "Dump root", snapshot.DumpRoot)
+	writeRuntimeDetail(&b, "Updated at", snapshot.UpdatedAt)
+	b.WriteString("</div></section>")
+
+	b.WriteString("<section class=\"panel\"><div class=\"section-heading\"><p class=\"eyebrow\">Inventory</p><h2>Endpoints</h2></div>")
+	if len(snapshot.Endpoints) == 0 {
+		b.WriteString("<p class=\"empty-state\">No endpoints configured.</p>")
+	} else {
+		b.WriteString("<div class=\"table-wrap\"><table class=\"obs-table\"><thead><tr><th>name</th><th>current</th><th>enabled</th><th>transformer</th><th>model</th><th>host</th><th>health</th></tr></thead><tbody>")
+		for _, endpoint := range snapshot.Endpoints {
+			b.WriteString("<tr><td><strong>" + html.EscapeString(endpoint.Name) + "</strong></td>")
+			b.WriteString("<td>" + yesNo(endpoint.Current) + "</td>")
+			b.WriteString("<td>" + yesNo(endpoint.Enabled) + "</td>")
+			b.WriteString("<td>" + html.EscapeString(endpoint.Transformer) + "</td>")
+			b.WriteString("<td>" + html.EscapeString(endpoint.Model) + "</td>")
+			b.WriteString("<td><code>" + html.EscapeString(endpoint.BaseURLHost) + "</code></td>")
+			b.WriteString("<td>" + html.EscapeString(firstNonEmpty(endpoint.Health, "unknown")) + "</td></tr>")
+		}
+		b.WriteString("</tbody></table></div>")
+	}
+	b.WriteString("</section>")
+	writePageEnd(&b)
+	_, _ = w.Write([]byte(b.String()))
+}
+
+func (s *server) handleRuntimeStatusAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.currentRuntimeSnapshot())
+}
+
+func (s *server) handleActiveEndpointAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	snapshot := s.currentRuntimeSnapshot()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"activeEndpoint": snapshot.ActiveEndpoint,
+		"updatedAt":      snapshot.UpdatedAt,
+	})
 }
 
 func (s *server) handleGlobalPrompts(w http.ResponseWriter, r *http.Request) {
@@ -1508,17 +1627,19 @@ func writePageStart(b *strings.Builder, opts pageOptions) {
 	if opts.Title == "" {
 		opts.Title = overviewTitle
 	}
+	gatewayBaseURL := gatewayBaseURL(opts.GatewayBaseURL)
 	b.WriteString("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>")
 	b.WriteString(html.EscapeString(opts.Title))
 	b.WriteString("</title><style>")
 	b.WriteString(pageCSS)
 	b.WriteString("</style></head><body><div class=\"loading-indicator\" role=\"status\" aria-live=\"polite\"><span>Loading destination</span></div><div class=\"app-shell\"><aside class=\"sidebar\"><div class=\"brand\"><span class=\"brand-mark\"></span><strong>CodeAgentLens Observability</strong></div><nav class=\"primary-nav\">")
 	writeNavLink(b, "Portal", "/debug/obs", opts.Active == "portal")
+	writeNavLink(b, "Runtime", "/debug/obs/runtime", opts.Active == "runtime")
 	writeNavLink(b, "Prompts", "/debug/obs/prompts", opts.Active == "prompts")
 	writeNavLink(b, "Debug Viewer", "/debug/obs", opts.Active == "debug")
 	b.WriteString("</nav><div class=\"quick-nav\"><p>Quick links</p>")
-	writeInlineLink(b, "Health", "/health", true)
-	writeInlineLink(b, "Web UI", "/ui/", true)
+	writeInlineLink(b, "Health", gatewayLink(gatewayBaseURL, "/health"), true)
+	writeInlineLink(b, "Web UI", gatewayLink(gatewayBaseURL, "/ui/"), true)
 	writeInlineLink(b, "Grafana", "/debug/obs/tool/grafana", false)
 	writeInlineLink(b, "Jaeger", "/debug/obs/tool/jaeger", false)
 	b.WriteString("</div></aside><main class=\"shell\"><div class=\"topbar\">")
@@ -1873,6 +1994,106 @@ func writeToolWrapper(w http.ResponseWriter, title, iframeURL, nativeLabel strin
 func writeText(w http.ResponseWriter, text string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(text))
+}
+
+func writeJSON(w http.ResponseWriter, status int, value interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func (s *server) currentRuntimeSnapshot() RuntimeSnapshot {
+	if s.runtimeSnapshot != nil {
+		snapshot := s.runtimeSnapshot()
+		if strings.TrimSpace(snapshot.Status) == "" {
+			snapshot.Status = "unknown"
+		}
+		if strings.TrimSpace(snapshot.Mode) == "" {
+			snapshot.Mode = "unknown"
+		}
+		if strings.TrimSpace(snapshot.DumpRoot) == "" {
+			snapshot.DumpRoot = s.root
+		}
+		if strings.TrimSpace(snapshot.GatewayListener) == "" {
+			snapshot.GatewayListener = "http://127.0.0.1:3010"
+		}
+		if strings.TrimSpace(snapshot.PortalListener) == "" {
+			snapshot.PortalListener = "http://127.0.0.1:3011/debug/obs"
+		}
+		if strings.TrimSpace(snapshot.UpdatedAt) == "" {
+			snapshot.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		return snapshot
+	}
+	return RuntimeSnapshot{
+		Status:          "unknown",
+		Mode:            "unknown",
+		GatewayListener: "http://127.0.0.1:3010",
+		PortalListener:  "http://127.0.0.1:3011/debug/obs",
+		DumpRoot:        s.root,
+		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func gatewayBaseURL(value string) string {
+	value = strings.TrimRight(strings.TrimSpace(value), "/")
+	if value == "" {
+		return "http://127.0.0.1:3010"
+	}
+	return value
+}
+
+func gatewayLink(baseURL, path string) string {
+	baseURL = gatewayBaseURL(baseURL)
+	if path == "" {
+		return baseURL
+	}
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return baseURL + path
+}
+
+func activeEndpointName(snapshot RuntimeSnapshot) string {
+	if snapshot.ActiveEndpoint == nil || strings.TrimSpace(snapshot.ActiveEndpoint.Name) == "" {
+		return "none"
+	}
+	return snapshot.ActiveEndpoint.Name
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func writeEndpointSnapshot(b *strings.Builder, endpoint EndpointSnapshot) {
+	b.WriteString("<div class=\"grid\">")
+	writeRuntimeDetail(b, "Name", endpoint.Name)
+	writeRuntimeDetail(b, "Transformer", endpoint.Transformer)
+	writeRuntimeDetail(b, "Model", endpoint.Model)
+	writeRuntimeDetail(b, "Auth mode", endpoint.AuthMode)
+	writeRuntimeDetail(b, "Base URL host", endpoint.BaseURLHost)
+	writeRuntimeDetail(b, "Health", firstNonEmpty(endpoint.Health, "unknown"))
+	writeRuntimeDetail(b, "Last switch reason", firstNonEmpty(endpoint.LastSwitchReason, "current runtime index"))
+	b.WriteString("</div>")
+}
+
+func writeRuntimeDetail(b *strings.Builder, label, value string) {
+	b.WriteString("<div class=\"snippet-block\"><div><span class=\"role-badge\">" + html.EscapeString(label) + "</span></div><code>" + html.EscapeString(firstNonEmpty(value, "unknown")) + "</code></div>")
 }
 
 func safeID(value string) bool {

@@ -41,7 +41,16 @@ class Dashboard {
                 <div class="grid grid-cols-2 mt-4">
                     <div class="card">
                         <div class="card-header">
-                            <h3 class="card-title">${t('dashboard.activeEndpoints')}</h3>
+                            <h3 class="card-title">${t('dashboard.currentEndpoint')}</h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="current-endpoint-card"></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">${t('dashboard.enabledEndpoints')}</h3>
                         </div>
                         <div class="card-body">
                             <div id="endpoints-list"></div>
@@ -71,7 +80,15 @@ class Dashboard {
 
             // Load endpoints
             const endpointsData = await api.getEndpoints();
-            this.updateEndpoints(endpointsData.endpoints);
+            let currentEndpoint = null;
+            try {
+                const currentData = await api.getCurrentEndpoint();
+                currentEndpoint = currentData.name || null;
+            } catch (error) {
+                console.error('Failed to get current endpoint:', error);
+            }
+            this.updateCurrentEndpoint(currentEndpoint, endpointsData.endpoints || []);
+            this.updateEndpoints(endpointsData.endpoints, currentEndpoint);
 
             // Load daily stats for chart
             const dailyStats = await api.getStatsDaily();
@@ -94,7 +111,30 @@ class Dashboard {
         document.getElementById('stat-output-tokens').textContent = formatTokens(stats.TotalOutputTokens || 0);
     }
 
-    updateEndpoints(endpoints) {
+    updateCurrentEndpoint(currentEndpoint, endpoints) {
+        const container = document.getElementById('current-endpoint-card');
+        const current = (endpoints || []).find(ep => ep.name === currentEndpoint);
+
+        if (!currentEndpoint) {
+            container.innerHTML = `<div class="empty-state"><p>${t('dashboard.noCurrentEndpoint')}</p></div>`;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="current-endpoint-summary">
+                <div>
+                    <div class="text-muted text-sm">${t('dashboard.activeGatewayEndpoint')}</div>
+                    <div class="current-endpoint-name">${this.escapeHtml(currentEndpoint)}</div>
+                </div>
+                <span class="badge badge-primary">${t('endpoints.current')}</span>
+            </div>
+            <div class="mt-2 text-sm text-muted">
+                ${current ? this.escapeHtml(current.transformer || '-') : t('dashboard.endpointDetailsUnavailable')}
+            </div>
+        `;
+    }
+
+    updateEndpoints(endpoints, currentEndpoint) {
         const container = document.getElementById('endpoints-list');
 
         if (!endpoints || endpoints.length === 0) {
@@ -122,11 +162,14 @@ class Dashboard {
                     <tbody>
                         ${enabledEndpoints.map(ep => `
                             <tr>
-                                <td>${this.escapeHtml(ep.name)}</td>
+                                <td>
+                                    ${this.escapeHtml(ep.name)}
+                                    ${ep.name === currentEndpoint ? `<span class="badge badge-primary" style="margin-left: 5px;">${t('endpoints.current')}</span>` : ''}
+                                </td>
                                 <td>${this.escapeHtml(ep.transformer)}</td>
                                 <td>
                                     <span class="status-indicator online"></span>
-                                    <span class="badge badge-success">${t('common.active')}</span>
+                                    <span class="badge badge-success">${t('common.enabled')}</span>
                                 </td>
                             </tr>
                         `).join('')}
@@ -138,6 +181,10 @@ class Dashboard {
 
     renderChart(dailyStats) {
         const canvas = document.getElementById('activity-chart');
+        if (!window.Chart) {
+            canvas.replaceWith(this.createChartFallback());
+            return;
+        }
         const ctx = canvas.getContext('2d');
 
         // Simple bar chart showing requests
@@ -172,6 +219,13 @@ class Dashboard {
                 }
             }
         });
+    }
+
+    createChartFallback() {
+        const fallback = document.createElement('div');
+        fallback.className = 'empty-state';
+        fallback.innerHTML = `<p>${t('dashboard.chartUnavailable')}</p>`;
+        return fallback;
     }
 
     escapeHtml(text) {
