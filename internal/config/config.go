@@ -35,6 +35,30 @@ func IsTokenPoolAuthMode(mode string) bool {
 	return normalized == AuthModeTokenPool || normalized == AuthModeCodexTokenPool
 }
 
+func NormalizeProxyURL(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	normalized := trimmed
+	if !strings.Contains(normalized, "://") {
+		normalized = "http://" + normalized
+	}
+
+	parsed, err := url.Parse(normalized)
+	if err != nil || parsed == nil {
+		return "", fmt.Errorf("invalid proxy URL: %q", raw)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "socks5" && parsed.Scheme != "socks5h" {
+		return "", fmt.Errorf("unsupported proxy scheme: %s", parsed.Scheme)
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return "", fmt.Errorf("proxy URL host is required")
+	}
+	return parsed.String(), nil
+}
+
 func ApplyEndpointAuthModeRules(ep *Endpoint) {
 	if ep == nil {
 		return
@@ -787,10 +811,14 @@ func LoadFromStorage(storage StorageAdapter) (*Config, error) {
 
 	// Load Proxy config
 	if proxyURL, err := storage.GetConfig("proxy_url"); err == nil && proxyURL != "" {
-		config.Proxy = &ProxyConfig{URL: proxyURL}
+		if normalized, err := NormalizeProxyURL(proxyURL); err == nil && normalized != "" {
+			config.Proxy = &ProxyConfig{URL: normalized}
+		}
 	}
 	if codexProxyURL, err := storage.GetConfig("codex_proxy_url"); err == nil && codexProxyURL != "" {
-		config.CodexProxy = &ProxyConfig{URL: codexProxyURL}
+		if normalized, err := NormalizeProxyURL(codexProxyURL); err == nil && normalized != "" {
+			config.CodexProxy = &ProxyConfig{URL: normalized}
+		}
 	}
 
 	// Load Claude notification config
@@ -1016,14 +1044,22 @@ func (c *Config) SaveToStorage(storage StorageAdapter) error {
 	// Save Proxy config
 	proxyURL := ""
 	if c.Proxy != nil {
-		proxyURL = c.Proxy.URL
+		normalized, err := NormalizeProxyURL(c.Proxy.URL)
+		if err != nil {
+			return fmt.Errorf("invalid proxy_url config: %w", err)
+		}
+		proxyURL = normalized
 	}
 	if err := storage.SetConfig("proxy_url", proxyURL); err != nil {
 		return fmt.Errorf("failed to save proxy_url config: %w", err)
 	}
 	codexProxyURL := ""
 	if c.CodexProxy != nil {
-		codexProxyURL = c.CodexProxy.URL
+		normalized, err := NormalizeProxyURL(c.CodexProxy.URL)
+		if err != nil {
+			return fmt.Errorf("invalid codex_proxy_url config: %w", err)
+		}
+		codexProxyURL = normalized
 	}
 	if err := storage.SetConfig("codex_proxy_url", codexProxyURL); err != nil {
 		return fmt.Errorf("failed to save codex_proxy_url config: %w", err)

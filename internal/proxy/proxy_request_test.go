@@ -3,6 +3,9 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -43,5 +46,107 @@ func TestInvalidJSONRequestDoesNotRotateCurrentEndpoint(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&upstreamHits); got != 0 {
 		t.Fatalf("expected invalid client request not to call upstream, got %d calls", got)
+	}
+}
+
+func TestDefaultProxyTransportUsesEnvironmentProxy(t *testing.T) {
+	if os.Getenv("CODE_AGENT_LENS_PROXY_ENV_HELPER") == "1" {
+		assertDefaultProxyTransportUsesEnvironment(t)
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDefaultProxyTransportUsesEnvironmentProxy$")
+	cmd.Env = append(os.Environ(),
+		"CODE_AGENT_LENS_PROXY_ENV_HELPER=1",
+		"HTTP_PROXY=",
+		"http_proxy=",
+		"HTTPS_PROXY=http://127.0.0.1:10808",
+		"https_proxy=http://127.0.0.1:10808",
+		"ALL_PROXY=",
+		"all_proxy=",
+		"NO_PROXY=",
+		"no_proxy=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helper test failed: %v\n%s", err, string(output))
+	}
+}
+
+func assertDefaultProxyTransportUsesEnvironment(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:10808")
+	t.Setenv("https_proxy", "http://127.0.0.1:10808")
+	t.Setenv("ALL_PROXY", "")
+	t.Setenv("all_proxy", "")
+	t.Setenv("NO_PROXY", "")
+	t.Setenv("no_proxy", "")
+
+	transport := NewDefaultProxyTransport()
+	if transport.Proxy == nil {
+		t.Fatalf("expected default proxy transport to use environment proxy function")
+	}
+	req := httptest.NewRequest(http.MethodGet, "https://example.test/v1/messages", nil)
+	proxyURL, err := transport.Proxy(req)
+	if err != nil {
+		t.Fatalf("Proxy returned error: %v", err)
+	}
+	if proxyURL == nil {
+		t.Fatalf("expected default proxy transport to use HTTPS_PROXY")
+	}
+	if got, want := proxyURL.String(), "http://127.0.0.1:10808"; got != want {
+		t.Fatalf("proxy URL = %q, want %q", got, want)
+	}
+}
+
+func TestCreateProxyTransportNormalizesProxyURLWithoutScheme(t *testing.T) {
+	transport, err := CreateProxyTransport("localhost:10808")
+	if err != nil {
+		t.Fatalf("CreateProxyTransport returned error: %v", err)
+	}
+	reqURL, err := url.Parse("https://chatgpt.com/backend-api/codex/v1/responses")
+	if err != nil {
+		t.Fatalf("parse target URL: %v", err)
+	}
+	proxyURL, err := transport.Proxy(&http.Request{URL: reqURL})
+	if err != nil {
+		t.Fatalf("transport proxy returned error: %v", err)
+	}
+	if proxyURL == nil {
+		t.Fatalf("expected normalized proxy URL")
+	}
+	if got, want := proxyURL.String(), "http://localhost:10808"; got != want {
+		t.Fatalf("proxy URL = %q, want %q", got, want)
+	}
+}
+
+func TestResolveProxyURLForRequestIgnoresGlobalProxyForRegularEndpoints(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.UpdateProxy(&config.ProxyConfig{URL: "http://127.0.0.1:10808"})
+	cfg.UpdateCodexProxy(&config.ProxyConfig{URL: "http://127.0.0.1:10808"})
+
+	reqURL, err := url.Parse("https://api.86gamestore.com/v1/responses")
+	if err != nil {
+		t.Fatalf("parse target URL: %v", err)
+	}
+
+	if got := resolveProxyURLForRequest(cfg, reqURL); got != "" {
+		t.Fatalf("regular endpoint app proxy URL = %q, want none", got)
+	}
+}
+
+func TestResolveProxyURLForRequestUsesCodexProxyForCodexBackend(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.UpdateProxy(&config.ProxyConfig{URL: "http://127.0.0.1:10808"})
+	cfg.UpdateCodexProxy(&config.ProxyConfig{URL: "http://127.0.0.1:10808"})
+
+	reqURL, err := url.Parse("https://chatgpt.com/backend-api/codex/responses")
+	if err != nil {
+		t.Fatalf("parse target URL: %v", err)
+	}
+
+	if got, want := resolveProxyURLForRequest(cfg, reqURL), "http://127.0.0.1:10808"; got != want {
+		t.Fatalf("codex backend proxy URL = %q, want %q", got, want)
 	}
 }

@@ -178,6 +178,10 @@ export function GetSessions(arg1) {
   return window['go']['main']['App']['GetSessions'](arg1);
 }
 
+export function GetStartupStatus() {
+  return window['go']['main']['App']['GetStartupStatus']();
+}
+
 export function GetStats() {
   return window['go']['main']['App']['GetStats']();
 }

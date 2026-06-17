@@ -89,6 +89,8 @@ export function GetSessionData(arg1:string,arg2:string):Promise<string>;
 
 export function GetSessions(arg1:string):Promise<string>;
 
+export function GetStartupStatus():Promise<string>;
+
 export function GetStats():Promise<string>;
 
 export function GetStatsDaily():Promise<string>;

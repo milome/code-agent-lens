@@ -356,9 +356,6 @@ func resolveProxyURLForRequest(cfg *config.Config, targetURL *url.URL) string {
 			return codexProxy.URL
 		}
 	}
-	if proxyCfg := cfg.GetProxy(); proxyCfg != nil && strings.TrimSpace(proxyCfg.URL) != "" {
-		return proxyCfg.URL
-	}
 	return ""
 }
 
@@ -376,22 +373,16 @@ func isCodexRequestURL(targetURL *url.URL) bool {
 
 // CreateProxyTransport creates an http.Transport with proxy support
 func CreateProxyTransport(proxyURL string) (*http.Transport, error) {
-	parsed, err := url.Parse(proxyURL)
+	normalized, err := config.NormalizeProxyURL(proxyURL)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := url.Parse(normalized)
 	if err != nil {
 		return nil, fmt.Errorf("invalid proxy URL: %w", err)
 	}
 
-	transport := &http.Transport{
-		MaxIdleConns:           100,
-		MaxIdleConnsPerHost:    10,
-		IdleConnTimeout:        90 * time.Second,
-		TLSHandshakeTimeout:    10 * time.Second,
-		ExpectContinueTimeout:  1 * time.Second,
-		ResponseHeaderTimeout:  90 * time.Second,
-		WriteBufferSize:        128 * 1024, // 128KB write buffer for large SSE streams
-		ReadBufferSize:         128 * 1024, // 128KB read buffer for large SSE streams
-		MaxResponseHeaderBytes: 64 * 1024,  // 64KB max response headers
-	}
+	transport := NewDefaultProxyTransport()
 
 	switch parsed.Scheme {
 	case "socks5", "socks5h":
@@ -406,6 +397,7 @@ func CreateProxyTransport(proxyURL string) (*http.Transport, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SOCKS5 dialer: %w", err)
 		}
+		transport.Proxy = nil
 		transport.Dial = dialer.Dial
 	case "http", "https":
 		transport.Proxy = http.ProxyURL(parsed)
@@ -414,4 +406,19 @@ func CreateProxyTransport(proxyURL string) (*http.Transport, error) {
 	}
 
 	return transport, nil
+}
+
+func NewDefaultProxyTransport() *http.Transport {
+	return &http.Transport{
+		Proxy:                  http.ProxyFromEnvironment,
+		MaxIdleConns:           100,
+		MaxIdleConnsPerHost:    10,
+		IdleConnTimeout:        90 * time.Second,
+		TLSHandshakeTimeout:    10 * time.Second,
+		ExpectContinueTimeout:  1 * time.Second,
+		ResponseHeaderTimeout:  90 * time.Second,
+		WriteBufferSize:        128 * 1024, // 128KB write buffer for large SSE streams
+		ReadBufferSize:         128 * 1024, // 128KB read buffer for large SSE streams
+		MaxResponseHeaderBytes: 64 * 1024,  // 64KB max response headers
+	}
 }

@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +21,7 @@ import (
 	"github.com/milome/code-agent-lens/internal/config"
 	"github.com/milome/code-agent-lens/internal/logger"
 	"github.com/milome/code-agent-lens/internal/observability"
+	"github.com/milome/code-agent-lens/internal/observability/viewer"
 	"github.com/milome/code-agent-lens/internal/proxy"
 	"github.com/milome/code-agent-lens/internal/runtimepaths"
 	"github.com/milome/code-agent-lens/internal/service"
@@ -68,9 +72,14 @@ type App struct {
 	storage          *storage.SQLiteStorage
 	obs              *observability.Runtime
 	ctxMutex         sync.RWMutex
+	startupMutex     sync.RWMutex
+	startupReady     bool
+	startupStage     string
+	startupError     string
 	trayIcon         []byte
 	paths            runtimepaths.Paths
 	proxyStartCancel context.CancelFunc
+	portalServer     *http.Server
 
 	// Services
 	stats    *service.StatsService
@@ -94,6 +103,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.ctxMutex.Unlock()
 
+	a.setStartupStatus(false, "Application starting", "")
 	logger.Info("Application starting...")
 
 	if os.Getenv("DEBUG") != "" {
@@ -103,19 +113,23 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	paths := a.paths
+	a.setStartupStatus(false, "Preparing runtime paths", "")
 	if err := ensureDesktopRuntimePaths(paths); err != nil {
 		logger.Error("Failed to create config directory: %v", err)
 	}
 
+	a.setStartupStatus(false, "Opening storage", "")
 	sqliteStorage, err := storage.NewSQLiteStorage(paths.DBPath)
 	if err != nil {
 		logger.Error("Failed to initialize storage: %v", err)
 		a.config = config.DefaultConfig()
 		logger.Error("Cannot start without storage")
+		a.setStartupStatus(false, "Storage initialization failed", err.Error())
 		return
 	}
 	a.storage = sqliteStorage
 
+	a.setStartupStatus(false, "Loading configuration", "")
 	configAdapter := storage.NewConfigStorageAdapter(sqliteStorage)
 	cfg, err := config.LoadFromStorage(configAdapter)
 	if err != nil {
@@ -127,7 +141,9 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.config = cfg
 
+	a.setStartupStatus(false, "Initializing observability", "")
 	obsCfg := observability.LoadConfigFromEnv(paths.ObservabilityDir)
+	obsCfg.ViewerEnabled = desktopDebugPortalEnabled()
 	obsRuntime, obsErr := observability.Init(ctx, obsCfg, a.GetVersion())
 	if obsErr != nil {
 		logger.Error("Failed to initialize observability runtime: %v", obsErr)
@@ -139,6 +155,7 @@ func (a *App) startup(ctx context.Context) {
 		logger.GetLogger().SetMinLevel(logger.LogLevel(cfg.GetLogLevel()))
 	}
 
+	a.setStartupStatus(false, "Loading device identity", "")
 	deviceID, err := sqliteStorage.GetOrCreateDeviceID()
 	if err != nil {
 		logger.Warn("Failed to get device ID: %v, using default", err)
@@ -147,6 +164,7 @@ func (a *App) startup(ctx context.Context) {
 		logger.Info("Device ID: %s", deviceID)
 	}
 
+	a.setStartupStatus(false, "Creating proxy services", "")
 	statsAdapter := storage.NewStatsStorageAdapter(sqliteStorage)
 	a.proxy = proxy.New(cfg, statsAdapter, sqliteStorage, deviceID)
 	a.proxy.SetObservabilityRuntime(a.obs)
@@ -175,11 +193,25 @@ func (a *App) startup(ctx context.Context) {
 	a.update = service.NewUpdateService(a.config, a.storage, version)
 	a.terminal = service.NewTerminalService(a.config, a.storage)
 
+	a.setStartupStatus(false, "Initializing tray", "")
 	a.initTray()
+
+	a.setStartupStatus(false, "Starting proxy server", "")
+	viewerPort := desktopDebugPortalPort()
+	portalServer, err := startDesktopDebugPortalServer(obsCfg, a.obs, viewerPort, desktopRuntimeSnapshotProvider(a.config, a.proxy, obsCfg.DumpDir, viewerPort))
+	if err != nil {
+		logger.Warn("Failed to start Debug Portal: %v", err)
+	} else {
+		a.portalServer = portalServer
+	}
 
 	proxyStartCtx, cancelProxyStart := context.WithCancel(context.Background())
 	a.proxyStartCancel = cancelProxyStart
-	go runDesktopProxyWithRetry(proxyStartCtx, a.proxy.Start, 2*time.Second, func(err error, retryDelay time.Duration) {
+	go runDesktopProxyWithRetry(proxyStartCtx, func() error {
+		proxyMux := http.NewServeMux()
+		blockDesktopDebugViewerOnGateway(proxyMux)
+		return a.proxy.StartWithMux(proxyMux)
+	}, 2*time.Second, func(err error, retryDelay time.Duration) {
 		logger.Error("Proxy server error: %v", err)
 		logger.Info("Proxy server will retry in %s", retryDelay)
 	})
@@ -189,7 +221,16 @@ func (a *App) startup(ctx context.Context) {
 		runtime.WindowShow(ctx)
 	}()
 
+	a.setStartupStatus(true, "Application ready", "")
 	logger.Info("Application started successfully")
+}
+
+func (a *App) setStartupStatus(ready bool, stage string, errMsg string) {
+	a.startupMutex.Lock()
+	defer a.startupMutex.Unlock()
+	a.startupReady = ready
+	a.startupStage = stage
+	a.startupError = errMsg
 }
 
 func runDesktopProxyWithRetry(ctx context.Context, start func() error, retryDelay time.Duration, onRetry func(error, time.Duration)) {
@@ -226,12 +267,179 @@ func runDesktopProxyWithRetry(ctx context.Context, start func() error, retryDela
 	}
 }
 
+func desktopDebugPortalEnabled() bool {
+	if raw := strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_OBS_VIEWER_ENABLED")); raw != "" {
+		return raw == "1" || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "yes") || strings.EqualFold(raw, "on")
+	}
+	return true
+}
+
+func desktopDebugPortalPort() int {
+	if raw := strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_OBS_VIEWER_PORT")); raw != "" {
+		if port, err := strconv.Atoi(raw); err == nil && port > 0 && port <= 65535 {
+			return port
+		}
+		logger.Warn("Invalid CODE_AGENT_LENS_OBS_VIEWER_PORT value %q", raw)
+	}
+	return 3011
+}
+
+func startDesktopDebugPortalServer(obsCfg observability.Config, obsRuntime *observability.Runtime, port int, providers ...viewer.RuntimeSnapshotProvider) (*http.Server, error) {
+	if !obsCfg.ViewerEnabled {
+		return nil, nil
+	}
+	mux := http.NewServeMux()
+	viewer.Register(mux, obsCfg.DumpDir, true, providers...)
+	handler := viewer.Guard(http.Handler(mux))
+	if obsRuntime != nil {
+		handler = obsRuntime.WrapHandler(handler, "code-agent-lens.desktop.portal")
+	}
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+	}
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		logger.Info("CodeAgentLens Debug Portal listening on :%d", port)
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("Debug Portal stopped with error: %v", err)
+		}
+	}()
+	return server, nil
+}
+
+func blockDesktopDebugViewerOnGateway(mux *http.ServeMux) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}
+	mux.HandleFunc("/debug/obs", handler)
+	mux.HandleFunc("/debug/obs/", handler)
+}
+
+func shutdownDesktopDebugPortal(server *http.Server) {
+	if server == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Warn("Debug Portal shutdown failed: %v", err)
+	}
+}
+
+func desktopRuntimeSnapshotProvider(cfg *config.Config, p *proxy.Proxy, dumpRoot string, viewerPort int) viewer.RuntimeSnapshotProvider {
+	return func() viewer.RuntimeSnapshot {
+		endpoints := cfg.GetEndpoints()
+		gatewayPort := cfg.GetPort()
+		currentName := ""
+		if p != nil {
+			endpoints = p.GetEndpointsSnapshot()
+			gatewayPort = p.GetPort()
+			currentName = p.GetCurrentEndpointName()
+		}
+
+		snapshots := make([]viewer.EndpointSnapshot, 0, len(endpoints))
+		enabledCount := 0
+		var active *viewer.EndpointSnapshot
+		for _, endpoint := range endpoints {
+			if endpoint.Enabled {
+				enabledCount++
+			}
+			snapshot := viewer.EndpointSnapshot{
+				Name:             endpoint.Name,
+				AuthMode:         config.NormalizeAuthMode(endpoint.AuthMode),
+				Enabled:          endpoint.Enabled,
+				Current:          endpoint.Name == currentName,
+				Transformer:      endpoint.Transformer,
+				Model:            endpoint.Model,
+				BaseURLHost:      desktopEndpointBaseURLHost(endpoint.APIUrl),
+				Health:           desktopEndpointHealth(endpoint, currentName),
+				LastSwitchReason: "current proxy index",
+			}
+			snapshots = append(snapshots, snapshot)
+			if snapshot.Current {
+				activeCopy := snapshot
+				active = &activeCopy
+			}
+		}
+
+		return viewer.RuntimeSnapshot{
+			Status:           desktopRuntimeStatus(enabledCount),
+			Mode:             "desktop",
+			GatewayListener:  desktopPublicGatewayURL(gatewayPort),
+			PortalListener:   desktopPublicPortalURL(viewerPort),
+			DumpRoot:         dumpRoot,
+			TotalEndpoints:   len(endpoints),
+			EnabledEndpoints: enabledCount,
+			ActiveEndpoint:   active,
+			Endpoints:        snapshots,
+			UpdatedAt:        time.Now().UTC().Format(time.RFC3339),
+		}
+	}
+}
+
+func desktopPublicPortalURL(port int) string {
+	if value := strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL")); value != "" {
+		return strings.TrimRight(value, "/")
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d/debug/obs", port)
+}
+
+func desktopPublicGatewayURL(port int) string {
+	if value := strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_GATEWAY_PUBLIC_URL")); value != "" {
+		return strings.TrimRight(value, "/")
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", port)
+}
+
+func desktopRuntimeStatus(enabledCount int) string {
+	if enabledCount == 0 {
+		return "degraded"
+	}
+	return "healthy"
+}
+
+func desktopEndpointHealth(endpoint config.Endpoint, currentName string) string {
+	if !endpoint.Enabled {
+		return "disabled"
+	}
+	if endpoint.Name == currentName {
+		return "active"
+	}
+	return "configured"
+}
+
+func desktopEndpointBaseURLHost(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	normalized := trimmed
+	if !strings.HasPrefix(normalized, "http://") && !strings.HasPrefix(normalized, "https://") {
+		normalized = "https://" + normalized
+	}
+	parsed, err := url.Parse(normalized)
+	if err != nil || parsed == nil || parsed.Host == "" {
+		return trimmed
+	}
+	return parsed.Host
+}
+
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
 	if a.proxyStartCancel != nil {
 		a.proxyStartCancel()
 		a.proxyStartCancel = nil
 	}
+	shutdownDesktopDebugPortal(a.portalServer)
+	a.portalServer = nil
 	if a.proxy != nil {
 		a.proxy.Stop()
 	}
@@ -319,6 +527,8 @@ func (a *App) Quit() {
 		}
 		a.proxy.Stop()
 	}
+	shutdownDesktopDebugPortal(a.portalServer)
+	a.portalServer = nil
 	a.shutdownObservability()
 	logger.GetLogger().Close()
 
@@ -885,13 +1095,39 @@ func (a *App) DeleteEndpointCredential(index int, credentialID int64) error {
 
 // ========== Settings Bindings ==========
 
+func (a *App) GetStartupStatus() string {
+	a.startupMutex.RLock()
+	status := map[string]interface{}{
+		"ready": a.startupReady,
+		"stage": a.startupStage,
+		"error": a.startupError,
+	}
+	a.startupMutex.RUnlock()
+
+	data, err := json.Marshal(status)
+	if err != nil {
+		return `{"ready":false,"stage":"Failed to encode startup status","error":"json marshal failed"}`
+	}
+	return string(data)
+}
+
 func (a *App) GetConfig() string { return a.settings.GetConfig() }
 func (a *App) UpdateConfig(configJSON string) error {
 	return a.settings.UpdateConfig(configJSON, a.proxy)
 }
-func (a *App) UpdatePort(port int) error            { return a.settings.UpdatePort(port) }
-func (a *App) GetSystemLanguage() string            { return a.settings.GetSystemLanguage() }
-func (a *App) GetLanguage() string                  { return a.settings.GetLanguage() }
+func (a *App) UpdatePort(port int) error { return a.settings.UpdatePort(port) }
+func (a *App) GetSystemLanguage() string { return a.settings.GetSystemLanguage() }
+func (a *App) GetLanguage() string {
+	if a.settings != nil {
+		return a.settings.GetLanguage()
+	}
+	if a.config != nil {
+		if lang := a.config.GetLanguage(); lang != "" {
+			return lang
+		}
+	}
+	return "zh-CN"
+}
 func (a *App) SetLanguage(language string) error    { return a.settings.SetLanguage(language) }
 func (a *App) GetTheme() string                     { return a.settings.GetTheme() }
 func (a *App) SetTheme(theme string) error          { return a.settings.SetTheme(theme) }

@@ -293,9 +293,14 @@ func (s *SettingsService) GetProxyURL() string {
 
 // SetProxyURL sets the proxy URL
 func (s *SettingsService) SetProxyURL(proxyURL string) error {
+	normalized, err := config.NormalizeProxyURL(proxyURL)
+	if err != nil {
+		return err
+	}
+
 	var proxyCfg *config.ProxyConfig
-	if proxyURL != "" {
-		proxyCfg = &config.ProxyConfig{URL: proxyURL}
+	if normalized != "" {
+		proxyCfg = &config.ProxyConfig{URL: normalized}
 	}
 	s.config.UpdateProxy(proxyCfg)
 
@@ -306,7 +311,7 @@ func (s *SettingsService) SetProxyURL(proxyURL string) error {
 		}
 	}
 
-	logger.Info("Proxy URL changed to: %s", proxyURL)
+	logger.Info("Proxy URL changed to: %s", normalized)
 	return nil
 }
 
@@ -320,9 +325,14 @@ func (s *SettingsService) GetCodexProxyURL() string {
 
 // SetCodexProxyURL sets the Codex dedicated proxy URL
 func (s *SettingsService) SetCodexProxyURL(proxyURL string) error {
+	normalized, err := config.NormalizeProxyURL(proxyURL)
+	if err != nil {
+		return err
+	}
+
 	var proxyCfg *config.ProxyConfig
-	if proxyURL != "" {
-		proxyCfg = &config.ProxyConfig{URL: proxyURL}
+	if normalized != "" {
+		proxyCfg = &config.ProxyConfig{URL: normalized}
 	}
 	s.config.UpdateCodexProxy(proxyCfg)
 
@@ -333,7 +343,7 @@ func (s *SettingsService) SetCodexProxyURL(proxyURL string) error {
 		}
 	}
 
-	logger.Info("Codex proxy URL changed to: %s", proxyURL)
+	logger.Info("Codex proxy URL changed to: %s", normalized)
 	return nil
 }
 

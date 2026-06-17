@@ -77,6 +77,65 @@ async function waitForWailsBridge(timeoutMs = 10000) {
     }
 }
 
+function withTimeout(promise, timeoutMs, label) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+    });
+
+    return Promise.race([
+        Promise.resolve(promise).finally(() => clearTimeout(timer)),
+        timeout
+    ]);
+}
+
+async function callBackend(methodName, args = [], timeoutMs = 5000) {
+    const app = window.go?.main?.App;
+    if (!app || typeof app[methodName] !== 'function') {
+        throw new Error(`Backend method is unavailable: ${methodName}`);
+    }
+    return withTimeout(app[methodName](...args), timeoutMs, methodName);
+}
+
+async function waitForBackendStartup(timeoutMs = 15000) {
+    const app = window.go?.main?.App;
+    if (!app || typeof app.GetStartupStatus !== 'function') {
+        return;
+    }
+
+    const start = Date.now();
+    let lastStatus = null;
+    let lastError = null;
+    while (Date.now() - start <= timeoutMs) {
+        try {
+            const statusStr = await callBackend('GetStartupStatus', [], 1500);
+            const status = JSON.parse(statusStr || '{}');
+            lastStatus = status;
+            lastError = null;
+
+            if (status.error) {
+                throw new Error(`${status.stage || 'Startup failed'}: ${status.error}`);
+            }
+            if (status.ready) {
+                return;
+            }
+            if (status.stage) {
+                showStartupStatus(status.stage);
+            }
+        } catch (error) {
+            lastError = error;
+            showStartupStatus('Waiting for backend startup...', formatStartupError(error));
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    const stage = lastStatus?.stage ? ` Last stage: ${lastStatus.stage}.` : '';
+    const detail = lastError ? ` ${formatStartupError(lastError)}` : '';
+    throw new Error(`Backend startup did not become ready within ${timeoutMs}ms.${stage}${detail}`);
+}
+
 window.addEventListener('error', (event) => {
     showStartupStatus('Frontend startup failed.', formatStartupError(event.error || event.message));
 });
@@ -132,13 +191,19 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     try {
         await waitForWailsBridge();
+        await waitForBackendStartup();
 
         showStartupStatus('Loading language settings...');
-        const lang = await window.go.main.App.GetLanguage();
+        let lang = 'zh-CN';
+        try {
+            lang = await callBackend('GetLanguage', [], 5000);
+        } catch (error) {
+            console.error('Failed to get language, using zh-CN fallback:', error);
+        }
         setLanguage(lang);
 
         showStartupStatus('Loading theme settings...');
-        await initTheme();
+        await withTimeout(initTheme(), 7000, 'initTheme');
 
         showStartupStatus('Rendering UI...');
         initUI();
@@ -157,7 +222,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
         // Load and display version
         try {
-            const version = await window.go.main.App.GetVersion();
+            const version = await callBackend('GetVersion', [], 5000);
             document.getElementById('appVersion').textContent = version;
         } catch (error) {
             console.error('Failed to get version:', error);
@@ -165,12 +230,12 @@ window.addEventListener('DOMContentLoaded', async () => {
 
         // Load initial data
         // IMPORTANT: Load stats first to populate cache, then render endpoints
-        await loadStatsByPeriod('daily'); // Load today's stats by default (ensure initialization completes before events)
-        await loadConfigAndRender();      // Render endpoints after stats are loaded
+        await withTimeout(loadStatsByPeriod('daily'), 7000, 'loadStatsByPeriod'); // Load today's stats by default
+        await withTimeout(loadConfigAndRender(), 7000, 'loadConfigAndRender');    // Render endpoints after stats are loaded
 
         // Restore log level from config
         try {
-            const logLevel = await window.go.main.App.GetLogLevel();
+            const logLevel = await callBackend('GetLogLevel', [], 5000);
             document.getElementById('logLevel').value = logLevel;
         } catch (error) {
             console.error('Failed to get log level:', error);

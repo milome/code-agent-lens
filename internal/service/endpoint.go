@@ -26,18 +26,8 @@ func (e *EndpointService) createHTTPClient(timeout time.Duration, targetURL stri
 	// Always create client with proper transport configuration
 	// Enhanced for large SSE streaming and HTTP/2 support
 	client := &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			MaxIdleConns:           100,
-			MaxIdleConnsPerHost:    10,
-			IdleConnTimeout:        90 * time.Second,
-			TLSHandshakeTimeout:    10 * time.Second,
-			ExpectContinueTimeout:  1 * time.Second,
-			ResponseHeaderTimeout:  30 * time.Second,
-			WriteBufferSize:        128 * 1024, // 128KB write buffer
-			ReadBufferSize:         128 * 1024, // 128KB read buffer
-			MaxResponseHeaderBytes: 64 * 1024,  // 64KB max response headers
-		},
+		Timeout:   timeout,
+		Transport: proxy.NewDefaultProxyTransport(),
 	}
 
 	proxyURL := e.resolveProxyURLForTarget(targetURL)
@@ -70,9 +60,6 @@ func (e *EndpointService) resolveProxyURLForTarget(targetURL string) string {
 				}
 			}
 		}
-	}
-	if proxyCfg := e.config.GetProxy(); proxyCfg != nil && strings.TrimSpace(proxyCfg.URL) != "" {
-		return proxyCfg.URL
 	}
 	return ""
 }

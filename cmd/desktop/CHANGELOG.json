@@ -3,7 +3,7 @@
     "version": "v5.3.0",
     "date": "2026-06-01",
     "changes": [
-      "Added developer → system role mapping for better upstream compatibility",
+      "Added developer → system role mapping for better remote endpoint compatibility",
       "Added endpoint cloning to speed up similar endpoint setup",
       "Added Basic Auth support for server mode with configurable credentials",
       "Added /v1/models API with cache support and refresh control",
@@ -43,9 +43,9 @@
       "Implemented credential lifecycle management: bulk import/update/delete, enable/disable, activation, status tracking, and refresh-on-401",
       "Added dedicated Token Pool management UI for Desktop and Web, including Codex proxy configuration and improved action layout",
       "Hardened Codex /responses handling with stream enforcement compatibility and improved retry/failover behavior",
-      "Made endpoint model optional and only override upstream model when a value is provided (Codex Token Pool friendly)",
+      "Made endpoint model optional and only override the target model when a value is provided (Codex Token Pool friendly)",
       "Fixed token accounting issues where request counts increased but token totals stayed unchanged in specific Codex streaming scenarios",
-      "Updated endpoint behavior for Codex mode with fixed upstream route and transformer constraints for better compatibility"
+      "Updated endpoint behavior for Codex mode with fixed target route and transformer constraints for better compatibility"
     ]
   },
   {

@@ -69,7 +69,7 @@ func (u *Updater) CheckForUpdates() (*UpdateInfo, error) {
 		CurrentVersion: u.currentVersion,
 		LatestVersion:  release.TagName,
 		ReleaseDate:    release.PublishedAt.Format("2006-01-02"),
-		Changelog:      release.Body,
+		Changelog:      sanitizeReleaseChangelog(release.Body),
 	}
 
 	hasUpdate, err := IsNewerVersion(u.currentVersion, release.TagName)
@@ -89,6 +89,16 @@ func (u *Updater) CheckForUpdates() (*UpdateInfo, error) {
 	}
 
 	return info, nil
+}
+
+func sanitizeReleaseChangelog(body string) string {
+	lowerBody := strings.ToLower(body)
+	for _, forbidden := range []string{"lich0821", "ccnexus", "upstream", "upstrem", "上游"} {
+		if strings.Contains(lowerBody, strings.ToLower(forbidden)) {
+			return "CodeAgentLens release details are available on the project release page."
+		}
+	}
+	return body
 }
 
 // DownloadUpdate downloads the update file in background
