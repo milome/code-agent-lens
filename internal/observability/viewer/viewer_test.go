@@ -707,6 +707,7 @@ func TestViewerShowsToolWrappers(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, root, true)
 	handler := Guard(mux)
+	grafanaMetricsAllURL := "http://127.0.0.1:13000/explore/metrics/trail?from=now-1h&to=now&var-ds=prometheus&var-otel_resources=&var-filters=&var-deployment_environment=&metricPrefix=all"
 
 	tests := []struct {
 		path       string
@@ -716,7 +717,7 @@ func TestViewerShowsToolWrappers(t *testing.T) {
 		native     string
 	}{
 		{"/debug/obs/tool/jaeger", "Jaeger", "Portal / Tools / Jaeger", "http://127.0.0.1:16686", "Open Jaeger native"},
-		{"/debug/obs/tool/grafana", "Grafana", "Portal / Tools / Grafana", "http://127.0.0.1:13000", "Open Grafana native"},
+		{"/debug/obs/tool/grafana", "Grafana", "Portal / Tools / Grafana", grafanaMetricsAllURL, "Open Grafana metrics"},
 	}
 	for _, tt := range tests {
 		resp := request(handler, tt.path)
@@ -724,11 +725,38 @@ func TestViewerShowsToolWrappers(t *testing.T) {
 			t.Fatalf("%s status=%d body=%s", tt.path, resp.Code, resp.Body.String())
 		}
 		body := resp.Body.String()
-		for _, want := range []string{tt.title, tt.breadcrumb, `src="` + tt.iframe + `"`, tt.native, `href="` + tt.iframe + `" target="_blank" rel="noopener noreferrer"`, "frame-policy", "/debug/obs"} {
+		iframe := strings.ReplaceAll(tt.iframe, "&", "&amp;")
+		for _, want := range []string{tt.title, tt.breadcrumb, `src="` + iframe + `"`, tt.native, `href="` + iframe + `" target="_blank" rel="noopener noreferrer"`, "frame-policy", "/debug/obs"} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s body missing %q: %s", tt.path, want, body)
 			}
 		}
+	}
+}
+
+func TestGrafanaWrapperTargetsAllMetricsTrail(t *testing.T) {
+	root := t.TempDir()
+	mux := http.NewServeMux()
+	Register(mux, root, true)
+	handler := Guard(mux)
+	grafanaMetricsAllURL := "http://127.0.0.1:13000/explore/metrics/trail?from=now-1h&to=now&var-ds=prometheus&var-otel_resources=&var-filters=&var-deployment_environment=&metricPrefix=all"
+
+	resp := request(handler, "/debug/obs/tool/grafana")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("grafana wrapper status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	escapedURL := strings.ReplaceAll(grafanaMetricsAllURL, "&", "&amp;")
+	for _, want := range []string{
+		`src="` + escapedURL + `"`,
+		`href="` + escapedURL + `" target="_blank" rel="noopener noreferrer"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("grafana wrapper missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `src="http://127.0.0.1:13000/explore/metrics"`) {
+		t.Fatalf("grafana wrapper should not rely on the generic metrics landing route: %s", body)
 	}
 }
 

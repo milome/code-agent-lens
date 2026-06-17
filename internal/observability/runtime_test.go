@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func TestLoadConfigFromEnvDefaultsDisabled(t *testing.T) {
@@ -109,6 +112,39 @@ func TestInitEnabledRuntime(t *testing.T) {
 	}
 	if err := rt.Shutdown(context.Background()); err != nil {
 		t.Fatalf("Shutdown = %v", err)
+	}
+}
+
+func TestInitMetricsPrimesContractSeries(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	rt := &Runtime{
+		meterProvider: mp,
+		meter:         mp.Meter("code-agent-lens"),
+	}
+
+	rt.initMetrics()
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect metrics: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, scope := range rm.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			got[metric.Name] = true
+		}
+	}
+
+	var missing []string
+	for _, name := range MetricNames() {
+		if !got[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("missing primed metrics: %v; got=%v", missing, got)
 	}
 }
 

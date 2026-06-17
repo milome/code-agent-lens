@@ -121,6 +121,27 @@ func (r *Runtime) initMetrics() {
 	ms.credentialRefreshTotal, _ = r.meter.Int64Counter("code-agent-lens_credential_refresh_total")
 	ms.credentialFailuresTotal, _ = r.meter.Int64Counter("code-agent-lens_credential_failures_total")
 	r.metrics = ms
+	r.primeMetricSeries()
+}
+
+func (r *Runtime) primeMetricSeries() {
+	if r == nil || r.metrics == nil {
+		return
+	}
+	ctx := context.Background()
+	primer := metric.WithAttributes(attribute.Bool("code-agent-lens.primer", true))
+	r.metrics.proxyRequestsTotal.Add(ctx, 0, primer)
+	r.metrics.proxyErrorsTotal.Add(ctx, 0, primer)
+	r.metrics.proxyRequestDurationMS.Record(ctx, 0, primer)
+	r.metrics.upstreamRequestDurationMS.Record(ctx, 0, primer)
+	r.metrics.upstreamRetriesTotal.Add(ctx, 0, primer)
+	r.metrics.endpointRotationsTotal.Add(ctx, 0, primer)
+	r.metrics.tokensInputTotal.Add(ctx, 0, primer)
+	r.metrics.tokensOutputTotal.Add(ctx, 0, primer)
+	r.metrics.streamEventsTotal.Add(ctx, 0, primer)
+	r.metrics.streamDurationMS.Record(ctx, 0, primer)
+	r.metrics.credentialRefreshTotal.Add(ctx, 0, primer)
+	r.metrics.credentialFailuresTotal.Add(ctx, 0, primer)
 }
 
 func (r *RequestRecorder) captureIngress(req *http.Request, clientFormat string, body []byte) {

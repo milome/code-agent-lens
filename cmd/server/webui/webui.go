@@ -39,6 +39,7 @@ func (w *WebUI) RegisterRoutes(mux *http.ServeMux) error {
 
 // RegisterRoutesWithAuth registers all web UI routes using the provided UI auth policy.
 func (w *WebUI) RegisterRoutesWithAuth(mux *http.ServeMux, authConfig api.AuthConfig) error {
+	w.apiHandler.SetAuth(authConfig)
 	mux.HandleFunc("/api/", w.apiHandler.ServeHTTP)
 	authMiddleware := api.BasicAuthMiddleware(authConfig)
 

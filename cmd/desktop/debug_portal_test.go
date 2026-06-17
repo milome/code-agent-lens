@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/milome/code-agent-lens/internal/config"
+	"github.com/milome/code-agent-lens/internal/proxy"
 )
 
 func TestDesktopDebugPortalEnabledByDefault(t *testing.T) {
@@ -58,9 +59,10 @@ func TestDesktopGatewayRegistersAdminUIWithoutBasicAuth(t *testing.T) {
 	cfg.BasicAuthEnabled = true
 	cfg.BasicAuthUsername = "admin"
 	cfg.BasicAuthPassword = "secret"
+	p := proxy.New(cfg, nil, nil, "test-device")
 
 	blockDesktopDebugViewerOnGateway(mux)
-	if err := registerDesktopGatewayUI(mux, cfg, nil, nil); err != nil {
+	if err := registerDesktopGatewayUI(mux, cfg, p, nil); err != nil {
 		t.Fatalf("registerDesktopGatewayUI returned error: %v", err)
 	}
 
@@ -82,5 +84,15 @@ func TestDesktopGatewayRegistersAdminUIWithoutBasicAuth(t *testing.T) {
 	}
 	if got := uiRec.Header().Get("WWW-Authenticate"); got != "" {
 		t.Fatalf("/ui/ unexpectedly requested basic auth: %q", got)
+	}
+
+	apiRec := httptest.NewRecorder()
+	mux.ServeHTTP(apiRec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+
+	if apiRec.Code == http.StatusUnauthorized {
+		t.Fatalf("/api/config unexpectedly requested basic auth")
+	}
+	if got := apiRec.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("/api/config unexpectedly requested basic auth: %q", got)
 	}
 }

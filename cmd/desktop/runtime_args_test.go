@@ -46,3 +46,29 @@ func TestResolveDesktopRuntimePathsIgnoresEnvironmentAndUnknownArgs(t *testing.T
 		t.Fatalf("DBPath = %q, want default db under data-dir flag", paths.DBPath)
 	}
 }
+
+func TestDesktopObservabilityDefaultsEnableOTel(t *testing.T) {
+	t.Setenv("CODE_AGENT_LENS_OTEL_ENABLED", "")
+	t.Setenv("CODE_AGENT_LENS_OBS_LOCAL_DEBUG", "")
+	t.Setenv("CODE_AGENT_LENS_OBS_DUMP_ENABLED", "")
+	t.Setenv("CODE_AGENT_LENS_OBS_PROMPT_EXTRACT", "")
+
+	cfg := desktopObservabilityConfig(t.TempDir())
+
+	if !cfg.Enabled {
+		t.Fatalf("desktop observability should enable OTel by default")
+	}
+	if !cfg.LocalDebug || !cfg.DumpEnabled || !cfg.PromptExtract {
+		t.Fatalf("desktop observability should default local debug capture on: %+v", cfg)
+	}
+}
+
+func TestDesktopObservabilityEnvCanDisableOTel(t *testing.T) {
+	t.Setenv("CODE_AGENT_LENS_OTEL_ENABLED", "false")
+
+	cfg := desktopObservabilityConfig(t.TempDir())
+
+	if cfg.Enabled {
+		t.Fatalf("desktop observability should honor explicit CODE_AGENT_LENS_OTEL_ENABLED=false")
+	}
+}

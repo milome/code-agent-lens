@@ -14,6 +14,8 @@ import (
 	"github.com/milome/code-agent-lens/internal/storage"
 )
 
+const currentEndpointConfigKey = "currentEndpoint"
+
 // SSEEvent represents a Server-Sent Event
 type SSEEvent struct {
 	Event string
@@ -63,7 +65,7 @@ func New(cfg *config.Config, statsStorage StatsStorage, sqliteStorage *storage.S
 		Transport: observability.WrapRoundTripper(NewDefaultProxyTransport()),
 	}
 
-	return &Proxy{
+	p := &Proxy{
 		config:         cfg,
 		storage:        sqliteStorage,
 		stats:          stats,
@@ -75,6 +77,8 @@ func New(cfg *config.Config, statsStorage StatsStorage, sqliteStorage *storage.S
 		modelsCache:    NewModelsCache(cfg.ModelsCacheTTL),
 		resolver:       NewEndpointResolverWithFunc(cfg.GetEndpoints),
 	}
+	p.restoreCurrentEndpointFromStorage()
+	return p
 }
 
 // SetObservabilityRuntime wires OTel runtime into proxy HTTP server and clients.
@@ -320,11 +324,54 @@ func (p *Proxy) SetCurrentEndpoint(targetName string) error {
 			}
 			p.currentIndex = i
 			logger.Info("[MANUAL SWITCH] %s → %s", oldEndpoint.Name, ep.Name)
+			p.persistCurrentEndpointLocked(ep.Name)
 			return nil
 		}
 	}
 
 	return fmt.Errorf("endpoint '%s' not found or not enabled", targetName)
+}
+
+func (p *Proxy) restoreCurrentEndpointFromStorage() {
+	if p.storage == nil {
+		return
+	}
+	name, err := p.storage.GetConfig(currentEndpointConfigKey)
+	if err != nil {
+		logger.Warn("Failed to load current endpoint: %v", err)
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	if err := p.restoreCurrentEndpoint(name); err != nil {
+		logger.Warn("Failed to restore current endpoint %q: %v", name, err)
+	}
+}
+
+func (p *Proxy) restoreCurrentEndpoint(targetName string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	endpoints := p.getEnabledEndpoints()
+	for i, ep := range endpoints {
+		if ep.Name == targetName {
+			p.currentIndex = i
+			logger.Info("[STARTUP] Restored current endpoint: %s", ep.Name)
+			return nil
+		}
+	}
+	return fmt.Errorf("endpoint not found or not enabled")
+}
+
+func (p *Proxy) persistCurrentEndpointLocked(endpointName string) {
+	if p.storage == nil {
+		return
+	}
+	if err := p.storage.SetConfig(currentEndpointConfigKey, endpointName); err != nil {
+		logger.Warn("Failed to persist current endpoint %q: %v", endpointName, err)
+	}
 }
 
 // ClientFormat represents the API format used by the client

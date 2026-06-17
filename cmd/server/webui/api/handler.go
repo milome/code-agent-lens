@@ -31,6 +31,11 @@ func NewHandler(cfg *config.Config, p *proxy.Proxy, s *storage.SQLiteStorage) *H
 	}
 }
 
+// SetAuth updates the auth policy used by API routes.
+func (h *Handler) SetAuth(auth AuthConfig) {
+	h.auth = auth
+}
+
 // ServeHTTP implements http.Handler interface
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path

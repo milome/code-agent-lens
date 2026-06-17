@@ -27,6 +27,7 @@ const (
 	defaultCodexToolTurnLimit  = 20
 	maxCodexToolCallSnippet    = 360
 	newTabRelAttrs             = `target="_blank" rel="noopener noreferrer"`
+	grafanaMetricsAllURL       = "http://127.0.0.1:13000/explore/metrics/trail?from=now-1h&to=now&var-ds=prometheus&var-otel_resources=&var-filters=&var-deployment_environment=&metricPrefix=all"
 )
 
 type breadcrumbItem struct {
@@ -688,7 +689,7 @@ func (s *server) handleToolGrafana(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	writeToolWrapper(w, "Grafana", "http://127.0.0.1:13000", "Open Grafana native")
+	writeToolWrapper(w, "Grafana", grafanaMetricsAllURL, "Open Grafana metrics")
 }
 
 func (s *server) servePrompt(w http.ResponseWriter, r *http.Request, requestID, role string) {

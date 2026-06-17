@@ -144,7 +144,7 @@ func (a *App) startup(ctx context.Context) {
 	a.config = cfg
 
 	a.setStartupStatus(false, "Initializing observability", "")
-	obsCfg := observability.LoadConfigFromEnv(paths.ObservabilityDir)
+	obsCfg := desktopObservabilityConfig(paths.ObservabilityDir)
 	obsCfg.ViewerEnabled = desktopDebugPortalEnabled()
 	obsRuntime, obsErr := observability.Init(ctx, obsCfg, a.GetVersion())
 	if obsErr != nil {
@@ -277,6 +277,23 @@ func desktopDebugPortalEnabled() bool {
 		return raw == "1" || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "yes") || strings.EqualFold(raw, "on")
 	}
 	return true
+}
+
+func desktopObservabilityConfig(defaultDumpDir string) observability.Config {
+	cfg := observability.LoadConfigFromEnv(defaultDumpDir)
+	cfg.Enabled = desktopBoolEnv("CODE_AGENT_LENS_OTEL_ENABLED", true)
+	cfg.LocalDebug = desktopBoolEnv("CODE_AGENT_LENS_OBS_LOCAL_DEBUG", true)
+	cfg.DumpEnabled = desktopBoolEnv("CODE_AGENT_LENS_OBS_DUMP_ENABLED", true)
+	cfg.PromptExtract = desktopBoolEnv("CODE_AGENT_LENS_OBS_PROMPT_EXTRACT", true)
+	return cfg
+}
+
+func desktopBoolEnv(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	return raw == "1" || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "yes") || strings.EqualFold(raw, "on")
 }
 
 func desktopDebugPortalPort() int {

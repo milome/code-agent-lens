@@ -6,11 +6,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/milome/code-agent-lens/internal/config"
+	"github.com/milome/code-agent-lens/internal/storage"
 )
 
 func TestInvalidJSONRequestDoesNotRotateCurrentEndpoint(t *testing.T) {
@@ -148,5 +150,29 @@ func TestResolveProxyURLForRequestUsesCodexProxyForCodexBackend(t *testing.T) {
 
 	if got, want := resolveProxyURLForRequest(cfg, reqURL), "http://127.0.0.1:10808"; got != want {
 		t.Fatalf("codex backend proxy URL = %q, want %q", got, want)
+	}
+}
+
+func TestProxyPersistsCurrentEndpointAcrossRestart(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.UpdateEndpoints([]config.Endpoint{
+		{Name: "大白AI", APIUrl: "http://example.invalid/dabai", APIKey: "key-1", Enabled: true, Transformer: "openai2"},
+		{Name: "Rightcode", APIUrl: "http://example.invalid/rightcode", APIKey: "key-2", Enabled: true, Transformer: "openai2"},
+	})
+	sqliteStorage, err := storage.NewSQLiteStorage(filepath.Join(t.TempDir(), "code-agent-lens.db"))
+	if err != nil {
+		t.Fatalf("open sqlite storage: %v", err)
+	}
+	defer sqliteStorage.Close()
+
+	p := New(cfg, nilStatsStorage{}, sqliteStorage, "test-device")
+	if err := p.SetCurrentEndpoint("Rightcode"); err != nil {
+		t.Fatalf("set current endpoint: %v", err)
+	}
+
+	restarted := New(cfg, nilStatsStorage{}, sqliteStorage, "test-device")
+
+	if got := restarted.GetCurrentEndpointName(); got != "Rightcode" {
+		t.Fatalf("expected restored current endpoint Rightcode, got %q", got)
 	}
 }
