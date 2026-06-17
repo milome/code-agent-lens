@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/milome/code-agent-lens/cmd/server/webui"
+	"github.com/milome/code-agent-lens/cmd/server/webui/api"
 	"github.com/milome/code-agent-lens/internal/config"
 	"github.com/milome/code-agent-lens/internal/logger"
 	"github.com/milome/code-agent-lens/internal/observability"
@@ -210,6 +212,9 @@ func (a *App) startup(ctx context.Context) {
 	go runDesktopProxyWithRetry(proxyStartCtx, func() error {
 		proxyMux := http.NewServeMux()
 		blockDesktopDebugViewerOnGateway(proxyMux)
+		if err := registerDesktopGatewayUI(proxyMux, a.config, a.proxy, a.storage); err != nil {
+			logger.Warn("Gateway UI not available: %v", err)
+		}
 		return a.proxy.StartWithMux(proxyMux)
 	}, 2*time.Second, func(err error, retryDelay time.Duration) {
 		logger.Error("Proxy server error: %v", err)
@@ -321,6 +326,11 @@ func blockDesktopDebugViewerOnGateway(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("/debug/obs", handler)
 	mux.HandleFunc("/debug/obs/", handler)
+}
+
+func registerDesktopGatewayUI(mux *http.ServeMux, cfg *config.Config, p *proxy.Proxy, sqliteStorage *storage.SQLiteStorage) error {
+	ui := webui.New(cfg, p, sqliteStorage)
+	return ui.RegisterRoutesWithAuth(mux, api.AuthConfig{Enabled: false})
 }
 
 func shutdownDesktopDebugPortal(server *http.Server) {

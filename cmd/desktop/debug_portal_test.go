@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/milome/code-agent-lens/internal/config"
 )
 
 func TestDesktopDebugPortalEnabledByDefault(t *testing.T) {
@@ -50,19 +52,35 @@ func TestBlockDesktopDebugViewerOnGatewayReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestDesktopGatewayDoesNotRegisterAdminUI(t *testing.T) {
+func TestDesktopGatewayRegistersAdminUIWithoutBasicAuth(t *testing.T) {
 	mux := http.NewServeMux()
+	cfg := config.DefaultConfig()
+	cfg.BasicAuthEnabled = true
+	cfg.BasicAuthUsername = "admin"
+	cfg.BasicAuthPassword = "secret"
+
 	blockDesktopDebugViewerOnGateway(mux)
+	if err := registerDesktopGatewayUI(mux, cfg, nil, nil); err != nil {
+		t.Fatalf("registerDesktopGatewayUI returned error: %v", err)
+	}
 
-	for _, path := range []string{"/admin", "/ui/", "/api/config"} {
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	adminRec := httptest.NewRecorder()
+	mux.ServeHTTP(adminRec, httptest.NewRequest(http.MethodGet, "/admin", nil))
 
-		if rec.Code != http.StatusNotFound {
-			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusNotFound)
-		}
-		if got := rec.Header().Get("WWW-Authenticate"); got != "" {
-			t.Fatalf("%s unexpectedly requested basic auth: %q", path, got)
-		}
+	if adminRec.Code != http.StatusFound {
+		t.Fatalf("/admin status = %d, want %d", adminRec.Code, http.StatusFound)
+	}
+	if got, want := adminRec.Header().Get("Location"), "/ui/"; got != want {
+		t.Fatalf("/admin Location = %q, want %q", got, want)
+	}
+
+	uiRec := httptest.NewRecorder()
+	mux.ServeHTTP(uiRec, httptest.NewRequest(http.MethodGet, "/ui/", nil))
+
+	if uiRec.Code == http.StatusUnauthorized {
+		t.Fatalf("/ui/ unexpectedly requested basic auth")
+	}
+	if got := uiRec.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("/ui/ unexpectedly requested basic auth: %q", got)
 	}
 }

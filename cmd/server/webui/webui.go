@@ -30,13 +30,16 @@ func New(cfg *config.Config, p *proxy.Proxy, storage *storage.SQLiteStorage) *We
 
 // RegisterRoutes registers all web UI routes to the provided mux
 func (w *WebUI) RegisterRoutes(mux *http.ServeMux) error {
-	mux.HandleFunc("/api/", w.apiHandler.ServeHTTP)
-
-	authConfig := api.AuthConfig{
+	return w.RegisterRoutesWithAuth(mux, api.AuthConfig{
 		Enabled:  w.cfg.BasicAuthEnabled,
 		Username: w.cfg.BasicAuthUsername,
 		Password: w.cfg.BasicAuthPassword,
-	}
+	})
+}
+
+// RegisterRoutesWithAuth registers all web UI routes using the provided UI auth policy.
+func (w *WebUI) RegisterRoutesWithAuth(mux *http.ServeMux, authConfig api.AuthConfig) error {
+	mux.HandleFunc("/api/", w.apiHandler.ServeHTTP)
 	authMiddleware := api.BasicAuthMiddleware(authConfig)
 
 	uiSubFS, err := fs.Sub(uiFS, "ui")
