@@ -374,5 +374,5 @@ func readTextFile(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
-	return string(raw)
+	return strings.ReplaceAll(string(raw), "\r\n", "\n")
 }
