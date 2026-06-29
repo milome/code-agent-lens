@@ -564,6 +564,53 @@ func TestViewerFiltersAndPaginatesGlobalPrompts(t *testing.T) {
 	}
 }
 
+func TestViewerGlobalPromptsShowsAndFiltersRequestMetadata(t *testing.T) {
+	root := t.TempDir()
+	matching := createViewerFixtureWithMetadata(t, root, "run-codex", "trace-codex", "span-codex", "request-codex", "codex", map[string][]string{
+		"User-Agent":              {"codex-cli-rs/0.42"},
+		"X-Codeagentlens-Session": {"session-codex"},
+	}, []byte(`{"model":"code-agent-lens-local-smoke","messages":[{"role":"user","content":"codex prompt"}]}`), []byte(`{"model":"provider-a/model-under-test","messages":[{"role":"user","content":"codex prompt"}]}`))
+	excluded := createViewerFixtureWithMetadata(t, root, "run-claude", "trace-claude", "span-claude", "request-claude", "claude", map[string][]string{
+		"User-Agent": {"claude-code/2.0"},
+	}, []byte(`{"model":"provider-b/another-model","messages":[{"role":"user","content":"claude prompt"}]}`), nil)
+	codexMetadata := createViewerFixtureWithMetadata(t, root, "run-codex-meta", "trace-codex-meta", "span-codex-meta", "request-codex-meta", "codex metadata", nil,
+		[]byte(`{"model":"code-agent-lens-local-smoke","messages":[{"role":"user","content":"codex metadata prompt"}]}`),
+		[]byte(`{"model":"provider-a/model-under-test","client_metadata":{"x-codex-installation-id":"installation-1"},"messages":[{"role":"user","content":"codex metadata prompt"}]}`),
+	)
+
+	mux := http.NewServeMux()
+	Register(mux, root, true)
+	handler := Guard(mux)
+
+	resp := request(handler, "/debug/obs/prompts?client=codex&model=provider-a%2Fmodel-under-test&limit=10")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("metadata filter status = %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	for _, want := range []string{
+		"Time",
+		"Client",
+		"Model",
+		"Source",
+		matching.RequestID,
+		"codex-cli-rs",
+		"provider-a/model-under-test",
+		"session-codex",
+		`name="client" value="codex"`,
+		`name="model" value="provider-a/model-under-test"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metadata prompts body missing %q: %s", want, body)
+		}
+	}
+	if strings.Count(body, "codex-cli-rs") < 2 || !strings.Contains(body, codexMetadata.RequestID) {
+		t.Fatalf("metadata prompts should infer codex-cli-rs from User-Agent and Codex metadata: %s", body)
+	}
+	if strings.Contains(body, excluded.RequestID) || strings.Contains(body, "provider-b/another-model") {
+		t.Fatalf("metadata filters should exclude non-matching request: %s", body)
+	}
+}
+
 func TestViewerGlobalPromptsSortsNewestRequestTimestampFirst(t *testing.T) {
 	root := t.TempDir()
 	older := createViewerFixtureWithIDs(t, root, "run-same", "trace-old", "span-old", "request-z-old", "older")
@@ -850,6 +897,52 @@ func createViewerFixtureWithIDs(t *testing.T, root, runID, traceID, spanID, requ
 	// Force an unmanifested file into the request directory.
 	if err := os.WriteFile(filepath.Join(root, "runs", runID, "traces", traceID, requestID, "not-in-manifest.txt"), []byte("secret"), 0600); err != nil {
 		t.Fatalf("write unmanifested: %v", err)
+	}
+	return fixtureRequest{TraceID: traceID, RequestID: requestID}
+}
+
+func createViewerFixtureWithMetadata(t *testing.T, root, runID, traceID, spanID, requestID, prefix string, headers map[string][]string, ingressBody, upstreamBody []byte) fixtureRequest {
+	t.Helper()
+	if prefix != "" {
+		prefix += " "
+	}
+	w := dump.NewWriter(dump.Config{Enabled: true, Root: root, RunID: runID})
+	rw, err := w.BeginRequest(traceID, spanID, requestID)
+	if err != nil {
+		t.Fatalf("BeginRequest: %v", err)
+	}
+	system, err := rw.WriteFile("prompt.system.txt", []byte(prefix+"system prompt"))
+	if err != nil {
+		t.Fatalf("write system: %v", err)
+	}
+	user, err := rw.WriteFile("prompt.user.txt", []byte(prefix+"user prompt"))
+	if err != nil {
+		t.Fatalf("write user: %v", err)
+	}
+	headerFile, err := rw.WriteJSONFile("ingress.request.headers.json", headers)
+	if err != nil {
+		t.Fatalf("write headers: %v", err)
+	}
+	bodyFile, err := rw.WriteFile("ingress.request.body.raw", ingressBody)
+	if err != nil {
+		t.Fatalf("write ingress body: %v", err)
+	}
+	files := []dump.FileRecord{system, user, headerFile, bodyFile}
+	if upstreamBody != nil {
+		upstreamFile, err := rw.WriteFile("upstream.request.body.raw", upstreamBody)
+		if err != nil {
+			t.Fatalf("write upstream body: %v", err)
+		}
+		files = append(files, upstreamFile)
+	}
+	if err := rw.WritePromptIndex(dump.PromptIndex{
+		Prompts: []dump.PromptRecord{
+			{Role: "system", File: "prompt.system.txt"},
+			{Role: "user", File: "prompt.user.txt"},
+		},
+		Files: files,
+	}); err != nil {
+		t.Fatalf("write prompt index: %v", err)
 	}
 	return fixtureRequest{TraceID: traceID, RequestID: requestID}
 }

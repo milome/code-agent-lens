@@ -54,6 +54,10 @@ type requestPromptSummary struct {
 	RequestID   string
 	TraceID     string
 	RunID       string
+	Time        string
+	Client      string
+	Model       string
+	Source      string
 	PromptCount int
 	TotalBytes  int
 	Roles       []promptRoleSummary
@@ -63,6 +67,8 @@ type promptExplorerQuery struct {
 	Q      string
 	Role   string
 	Run    string
+	Client string
+	Model  string
 	Limit  int
 	Offset int
 }
@@ -425,6 +431,8 @@ func (s *server) handleGlobalPrompts(w http.ResponseWriter, r *http.Request) {
 	writeInput(&b, "q", "Search metadata", query.Q)
 	writeInput(&b, "role", "Role", query.Role)
 	writeInput(&b, "run", "Run", query.Run)
+	writeInput(&b, "client", "Client", query.Client)
+	writeInput(&b, "model", "Model", query.Model)
 	writeInput(&b, "limit", "Limit", strconv.Itoa(query.Limit))
 	writeInput(&b, "offset", "Offset", strconv.Itoa(query.Offset))
 	b.WriteString("<button type=\"submit\">Apply filters</button><a class=\"reset-link\" href=\"/debug/obs/prompts\">Reset</a></form></aside>")
@@ -1081,6 +1089,173 @@ func headerHasPrefix(headers map[string][]string, key, prefix string) bool {
 	return false
 }
 
+func (s *server) promptRequestModel(rec requestRecord, index dump.PromptIndex) string {
+	for _, name := range []string{
+		"upstream.request.body.raw",
+		"transform.request.output.raw",
+		"upstream.response.transformed.raw",
+		"upstream.response.body.raw",
+		"transform.request.input.raw",
+		"ingress.request.body.raw",
+	} {
+		if model := s.manifestJSONModel(rec, index, name); model != "" {
+			return model
+		}
+	}
+	return "unknown"
+}
+
+func (s *server) manifestJSONModel(rec requestRecord, index dump.PromptIndex, name string) string {
+	raw, ok, err := s.readManifestBytes(rec, index, name)
+	if err != nil || !ok || len(raw) == 0 {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	model, _ := payload["model"].(string)
+	return strings.TrimSpace(model)
+}
+
+func (s *server) promptRequestClient(rec requestRecord, index dump.PromptIndex, headers map[string][]string) string {
+	if client := inferClient(headers); client != "unknown" {
+		return client
+	}
+	if s.requestBodyHasCodexMetadata(rec, index) || s.upstreamURLContains(rec, index, "/codex/") {
+		return "codex-cli-rs"
+	}
+	return "unknown"
+}
+
+func (s *server) requestBodyHasCodexMetadata(rec requestRecord, index dump.PromptIndex) bool {
+	for _, name := range []string{
+		"upstream.request.body.raw",
+		"transform.request.output.raw",
+		"transform.request.input.raw",
+		"ingress.request.body.raw",
+	} {
+		raw, ok, err := s.readManifestBytes(rec, index, name)
+		if err != nil || !ok || len(raw) == 0 {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			continue
+		}
+		if mapHasKeyPrefix(payload, "x-codex-") {
+			return true
+		}
+	}
+	return false
+}
+
+func mapHasKeyPrefix(value any, prefix string) bool {
+	prefix = strings.ToLower(prefix)
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			if strings.HasPrefix(strings.ToLower(key), prefix) || mapHasKeyPrefix(item, prefix) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if mapHasKeyPrefix(item, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *server) upstreamURLContains(rec requestRecord, index dump.PromptIndex, needle string) bool {
+	raw, ok, err := s.readManifestBytes(rec, index, "upstream.request.url.json")
+	if err != nil || !ok || len(raw) == 0 {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false
+	}
+	for _, key := range []string{"url", "host"} {
+		value, _ := payload[key].(string)
+		if strings.Contains(strings.ToLower(value), strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
+
+func inferClient(headers map[string][]string) string {
+	userAgent := firstHeaderValue(headers, "User-Agent")
+	normalized := strings.ToLower(userAgent)
+	switch {
+	case strings.Contains(normalized, "codex"):
+		return firstUserAgentProduct(userAgent)
+	case strings.Contains(normalized, "claude"):
+		return firstUserAgentProduct(userAgent)
+	case strings.Contains(normalized, "curl"):
+		return firstUserAgentProduct(userAgent)
+	case strings.Contains(normalized, "mozilla"):
+		return "browser"
+	case strings.TrimSpace(userAgent) != "":
+		return firstUserAgentProduct(userAgent)
+	default:
+		return "unknown"
+	}
+}
+
+func inferPromptSource(rec requestRecord, headers map[string][]string) string {
+	for _, key := range []string{
+		"X-Codeagentlens-Session",
+		"X-CodeAgentLens-Session",
+		"X-Codeagentlens-Project",
+		"X-CodeAgentLens-Project",
+		"X-Session-Id",
+		"X-Project-Dir",
+	} {
+		if value := strings.TrimSpace(firstHeaderValue(headers, key)); value != "" {
+			return value
+		}
+	}
+	if rec.RunID != "" {
+		return rec.RunID
+	}
+	return "unknown"
+}
+
+func firstHeaderValue(headers map[string][]string, key string) string {
+	for headerKey, values := range headers {
+		if !strings.EqualFold(headerKey, key) {
+			continue
+		}
+		for _, value := range values {
+			if strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
+}
+
+func firstUserAgentProduct(userAgent string) string {
+	token := strings.TrimSpace(userAgent)
+	if token == "" {
+		return "unknown"
+	}
+	if idx := strings.IndexAny(token, " \t;("); idx >= 0 {
+		token = strings.TrimSpace(token[:idx])
+	}
+	if idx := strings.Index(token, "/"); idx > 0 {
+		token = strings.TrimSpace(token[:idx])
+	}
+	if token == "" {
+		return "unknown"
+	}
+	return token
+}
+
 func (s *server) buildPromptSummaries(records []requestRecord) []requestPromptSummary {
 	summaries := make([]requestPromptSummary, 0, len(records))
 	for _, rec := range records {
@@ -1269,10 +1444,15 @@ func firstNonEmptyLine(value string) string {
 }
 
 func (s *server) promptSummaryFromIndex(rec requestRecord, index dump.PromptIndex) requestPromptSummary {
+	headers, _ := s.readHeaderArtifact(rec, index)
 	summary := requestPromptSummary{
 		RequestID:   rec.RequestID,
 		TraceID:     rec.TraceID,
 		RunID:       rec.RunID,
+		Time:        formatRecordTime(rec),
+		Client:      s.promptRequestClient(rec, index, headers),
+		Model:       s.promptRequestModel(rec, index),
+		Source:      inferPromptSource(rec, headers),
 		PromptCount: len(index.Prompts),
 	}
 	for _, prompt := range index.Prompts {
@@ -1483,6 +1663,8 @@ func parsePromptExplorerQuery(values url.Values) promptExplorerQuery {
 		Q:      strings.TrimSpace(values.Get("q")),
 		Role:   strings.TrimSpace(values.Get("role")),
 		Run:    strings.TrimSpace(values.Get("run")),
+		Client: strings.TrimSpace(values.Get("client")),
+		Model:  strings.TrimSpace(values.Get("model")),
 		Limit:  limit,
 		Offset: offset,
 	}
@@ -1524,8 +1706,16 @@ func filterPromptSummaries(summaries []requestPromptSummary, query promptExplore
 	q := strings.ToLower(query.Q)
 	roleFilter := strings.ToLower(query.Role)
 	runFilter := strings.ToLower(query.Run)
+	clientFilter := strings.ToLower(query.Client)
+	modelFilter := strings.ToLower(query.Model)
 	for _, summary := range summaries {
 		if runFilter != "" && strings.ToLower(summary.RunID) != runFilter {
+			continue
+		}
+		if clientFilter != "" && !strings.Contains(strings.ToLower(summary.Client), clientFilter) {
+			continue
+		}
+		if modelFilter != "" && !strings.Contains(strings.ToLower(summary.Model), modelFilter) {
 			continue
 		}
 		if roleFilter != "" && !summaryHasRole(summary, roleFilter) {
@@ -1549,7 +1739,7 @@ func summaryHasRole(summary requestPromptSummary, role string) bool {
 }
 
 func summaryMatchesQuery(summary requestPromptSummary, q string) bool {
-	values := []string{summary.RequestID, summary.TraceID, summary.RunID}
+	values := []string{summary.RequestID, summary.TraceID, summary.RunID, summary.Time, summary.Client, summary.Model, summary.Source}
 	for _, item := range summary.Roles {
 		values = append(values, item.Role, item.Snippet)
 	}
@@ -1723,9 +1913,13 @@ func writeRoleBadges(b *strings.Builder, prompts []dump.PromptRecord) {
 }
 
 func writePromptTraceList(b *strings.Builder, summaries []requestPromptSummary) {
-	b.WriteString("<div class=\"trace-list table-wrap\"><table class=\"obs-table prompt-trace-table\"><thead><tr><th>Trace ID</th><th>Request ID</th><th>Run</th><th>Roles</th><th>Prompts</th><th>Bytes</th><th>Actions</th></tr></thead><tbody>")
+	b.WriteString("<div class=\"trace-list table-wrap\"><table class=\"obs-table prompt-trace-table\"><thead><tr><th>Time</th><th>Client</th><th>Model</th><th>Source</th><th>Trace ID</th><th>Request ID</th><th>Run</th><th>Roles</th><th>Prompts</th><th>Bytes</th><th>Actions</th></tr></thead><tbody>")
 	for _, summary := range summaries {
-		b.WriteString("<tr class=\"trace-row\"><td class=\"trace-cell\">")
+		b.WriteString("<tr class=\"trace-row\"><td><code>" + html.EscapeString(summary.Time) + "</code></td>")
+		b.WriteString("<td><span class=\"role-badge\">" + html.EscapeString(summary.Client) + "</span></td>")
+		b.WriteString("<td><code>" + html.EscapeString(summary.Model) + "</code></td>")
+		b.WriteString("<td><code>" + html.EscapeString(summary.Source) + "</code></td>")
+		b.WriteString("<td class=\"trace-cell\">")
 		b.WriteString("<a class=\"trace-primary\" href=\"/debug/obs/request/" + html.EscapeString(summary.RequestID) + "/prompts\"><code>" + html.EscapeString(summary.TraceID) + "</code></a>")
 		writePromptHoverCardShell(b, summary)
 		b.WriteString("</td><td><a href=\"/debug/obs/request/" + html.EscapeString(summary.RequestID) + "\"><code>" + html.EscapeString(summary.RequestID) + "</code></a></td>")
@@ -1745,13 +1939,14 @@ func writePromptTraceList(b *strings.Builder, summaries []requestPromptSummary) 
 func writePromptHoverCardShell(b *strings.Builder, summary requestPromptSummary) {
 	b.WriteString("<aside class=\"hover-card\" data-preview-url=\"/debug/obs/request/" + html.EscapeString(summary.RequestID) + "/prompt-preview\" aria-label=\"Prompt preview for trace " + html.EscapeString(summary.TraceID) + "\">")
 	b.WriteString("<div class=\"hover-card-body hover-card-placeholder\"><div class=\"hover-card-head\"><strong>" + html.EscapeString(summary.TraceID) + "</strong><span>" + strconv.Itoa(summary.PromptCount) + " prompts · " + strconv.Itoa(summary.TotalBytes) + " bytes</span></div>")
+	b.WriteString("<p class=\"muted\">client: <code>" + html.EscapeString(summary.Client) + "</code> · model: <code>" + html.EscapeString(summary.Model) + "</code> · source: <code>" + html.EscapeString(summary.Source) + "</code></p>")
 	b.WriteString("<p class=\"muted\">Hover preview loads on demand. Click the trace id for full prompt details.</p></div>")
 	b.WriteString("</aside>")
 }
 
 func writePromptHoverCardBody(b *strings.Builder, summary requestPromptSummary) {
 	b.WriteString("<div class=\"hover-card-head\"><strong>" + html.EscapeString(summary.TraceID) + "</strong><span>" + strconv.Itoa(summary.PromptCount) + " prompts · " + strconv.Itoa(summary.TotalBytes) + " bytes</span></div>")
-	b.WriteString("<p class=\"muted\">request: <code>" + html.EscapeString(summary.RequestID) + "</code> · run: <code>" + html.EscapeString(summary.RunID) + "</code></p>")
+	b.WriteString("<p class=\"muted\">request: <code>" + html.EscapeString(summary.RequestID) + "</code> · run: <code>" + html.EscapeString(summary.RunID) + "</code> · client: <code>" + html.EscapeString(summary.Client) + "</code> · model: <code>" + html.EscapeString(summary.Model) + "</code> · source: <code>" + html.EscapeString(summary.Source) + "</code></p>")
 	for _, role := range summary.Roles {
 		b.WriteString("<section class=\"snippet-block compact-snippet\"><div><span class=\"role-badge\">" + html.EscapeString(role.Role) + "</span>")
 		if role.File != "" {
@@ -1945,6 +2140,12 @@ func (query promptExplorerQuery) queryString() string {
 	}
 	if query.Run != "" {
 		values.Set("run", query.Run)
+	}
+	if query.Client != "" {
+		values.Set("client", query.Client)
+	}
+	if query.Model != "" {
+		values.Set("model", query.Model)
 	}
 	values.Set("limit", strconv.Itoa(query.Limit))
 	values.Set("offset", strconv.Itoa(query.Offset))

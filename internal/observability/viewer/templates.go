@@ -238,13 +238,13 @@ a:hover {
 .prompt-trace-table {
   table-layout: fixed;
 }
-.prompt-trace-table th:first-child,
-.prompt-trace-table td:first-child {
-  width: 28%;
+.prompt-trace-table th:nth-child(3),
+.prompt-trace-table td:nth-child(3) {
+  min-width: 180px;
 }
-.prompt-trace-table th:nth-child(4),
-.prompt-trace-table td:nth-child(4) {
-  width: 18%;
+.prompt-trace-table th:nth-child(5),
+.prompt-trace-table td:nth-child(5) {
+  min-width: 220px;
 }
 .trace-row {
   transition: background .16s ease, box-shadow .16s ease;
