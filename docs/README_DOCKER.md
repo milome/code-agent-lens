@@ -17,6 +17,7 @@
 	- 本地 observability 调试环境：`CODE_AGENT_LENS_OTEL_ENABLED=true`、`CODE_AGENT_LENS_OBS_LOCAL_DEBUG=true`、`CODE_AGENT_LENS_OBS_DUMP_ENABLED=true`、`CODE_AGENT_LENS_OBS_DUMP_DIR=/data/observability`、`CODE_AGENT_LENS_OBS_VIEWER_ENABLED=true`、`CODE_AGENT_LENS_OBS_VIEWER_PUBLIC_URL=http://127.0.0.1:3011/debug/obs`。容器内 `/data/observability` 对应宿主 `D:\DevTools\code-agent-lens\data\observability`。
 	- `D:\DevTools\shared\ccnexus` 是旧 ccNexus 迁移来源，不是 CodeAgentLens Docker 或 native 的当前运行目录。
 	- Jaeger 可用 `docs/observability/jaeger-ui-config.json` 的 `linkPatterns` 将 `code-agent-lens_obs_ref` 链接到 `http://127.0.0.1:3011/debug/obs`。Grafana Tempo 可配置 Trace correlation，使用 `traceID` 和 `spanID` 从 trace 跳转到本地 Debug Viewer。
+	- Loki 通过 OTel Collector 的 `otlphttp/logs` exporter 接收 OTLP logs。打开 Grafana Explore `http://127.0.0.1:13000/explore`，选择 `Loki` datasource，并按实际 `service_name` 查询；full Docker runtime 可用 `{service_name="code-agent-lens"}`。
 	- Debug Viewer 入口包含 `/debug/obs/tool/jaeger` 和 `/debug/obs/tool/grafana` wrapper 页面。Grafana wrapper 只有在 Grafana 服务设置 `GF_SECURITY_ALLOW_EMBEDDING=true` 时才能在 iframe 中显示；未启用时仍保留 Portal 导航和原生新标签页打开链接。当前观测到的 Grafana compose 路径是 `deploy/observability/docker-compose.observability.yaml`，该路径位于本仓库写入范围之外。
 
 4. 使用快速指引

@@ -24,6 +24,7 @@ services:
       - CODE_AGENT_LENS_OBS_CAPTURE_BODIES=all
       - CODE_AGENT_LENS_OBS_CAPTURE_STREAM_EVENTS=all
       - CODE_AGENT_LENS_OBS_PROMPT_EXTRACT=true
+      - CODE_AGENT_LENS_OBS_SMOKE_UPSTREAM=true
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318
       - TZ=Asia/Shanghai
     healthcheck:

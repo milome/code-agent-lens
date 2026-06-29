@@ -12,7 +12,7 @@ CodeAgentLens 是面向代码代理的本地模型端点网关与观测工作台
 
 - 面向代码代理模型流量的 loopback Gateway/API：`http://127.0.0.1:3010`。
 - 独立的 Debug Portal：`http://127.0.0.1:3011/debug/obs`，用于观测和本地 artifact 检查。
-- 导出到本地观测工具栈的 OpenTelemetry traces 和 metrics。
+- 导出到本地观测工具栈的 OpenTelemetry traces、metrics 和 logs。
 - 本地请求 dump，包含 prompt 提取、headers、请求/响应 body、转换后的 body、stream events 和 usage 文件。
 - 面向 Claude、OpenAI Chat、OpenAI Responses 风格客户端的 endpoint 路由、重试、凭证轮换和 token 用量统计。
 - 可纳入版本控制的本地验证命令，覆盖 native 和 Docker 运行模式。
@@ -36,8 +36,9 @@ CodeAgentLens 是面向代码代理的本地模型端点网关与观测工作台
 | Gateway/API | `http://127.0.0.1:3010` | 本地代码代理模型 endpoint。 |
 | Debug Portal | `http://127.0.0.1:3011/debug/obs` | 查看 traces、prompts、artifacts 和工具入口的主界面。 |
 | Jaeger | `http://127.0.0.1:16686` | Trace 搜索与 span timing。 |
-| Grafana | `http://127.0.0.1:13000` | Dashboard 与 Tempo/Prometheus 查询。 |
+| Grafana | `http://127.0.0.1:13000` | Dashboard 与 Tempo/Prometheus/Loki 查询。 |
 | Prometheus | `http://127.0.0.1:9090/graph` | Metrics 查询界面。 |
+| Loki | `http://127.0.0.1:3100/ready` | Grafana Explore 使用的本地日志存储。 |
 | Tempo | `http://127.0.0.1:3200/status` | Trace storage 状态。 |
 | OTel Collector | `http://127.0.0.1:8888/metrics` | Collector 诊断指标。 |
 
@@ -78,8 +79,9 @@ CodeAgentLens 本机运行数据唯一规范目录是 `D:\DevTools\code-agent-le
 | Stream event capture | 启用 stream capture 后记录 raw 和 transformed SSE events。 | Stream artifacts 和 `/debug/obs/request/{request_id}`。 |
 | Debug Portal | 提供 recent requests、prompt sessions、errors、trace links、raw artifacts 和集成工具的本地 UI。 | `http://127.0.0.1:3011/debug/obs`。 |
 | Jaeger integration | 展示分布式 trace timing，并通过 `code-agent-lens_obs_ref` 链回 CodeAgentLens artifacts。 | `/debug/obs/tool/jaeger` 或原生 Jaeger。 |
-| Grafana integration | 打开本地 dashboards 与 Tempo/Prometheus views，同时保留 Portal navigation。 | `/debug/obs/tool/grafana` 或原生 Grafana。 |
+| Grafana integration | 打开本地 dashboards 与 Tempo/Prometheus/Loki views，同时保留 Portal navigation。 | `/debug/obs/tool/grafana` 或原生 Grafana。 |
 | Prometheus metrics | 暴露 requests、errors、retries、endpoint rotations、stream events、credential refreshes 和 token totals 的 counters/histograms。 | Prometheus 或 Grafana。 |
+| Loki logs | 存储 local collector 收到的 OTLP logs，用于 Grafana Explore 的 LogQL 查询。 | 选择 `Loki` datasource 并查询 `{service_name="code-agent-lens"}`。 |
 | Validation CLI | 为 stack profiles、local debug policy、synthetic traces、auth simulations 和 port checks 生成 evidence。 | `go run ./cmd/code-agent-lens obs ...`。 |
 
 ### 采集的 Artifacts
@@ -106,7 +108,7 @@ go run ./cmd/code-agent-lens obs validate --deployment-profile local_debug --pro
 
 ### Native Runtime + Docker Observability
 
-如果要让 native CodeAgentLens 进程监听 `3010` 和 `3011`，同时由 Docker 提供 Jaeger、Grafana、Prometheus、Tempo 和 OTel Collector，使用这个模式。
+如果要让 native CodeAgentLens 进程监听 `3010` 和 `3011`，同时由 Docker 提供 Jaeger、Grafana、Prometheus、Loki、Tempo 和 OTel Collector，使用这个模式。
 
 先启动 observability-only Docker stack：
 
@@ -198,13 +200,17 @@ docker compose -p observability -f deploy/observability/docker-compose.full.yaml
 
 打开 `/debug/obs/tool/grafana` 或原生 Grafana `http://127.0.0.1:13000`。Prometheus metrics 包含 request totals、error totals、request duration、upstream duration、retries、endpoint rotations、token counters、stream events 和 credential refresh/failure counters。
 
+### Q: 在哪里查询 logs？
+
+打开 Grafana Explore `http://127.0.0.1:13000/explore`，选择 `Loki` datasource。Full Docker runtime 可查询 `{service_name="code-agent-lens"}`；agent 侧 telemetry 使用对应 OTLP log producer 发出的 `service_name`。内置 OTel Collector 会把 OTLP logs 导出到 Loki `http://loki:3100/otlp`，同时保留 debug exporter 作为 fallback。
+
 ### Q: 我想确认 Portal 与 Gateway/API 是分离的，怎么看？
 
 Gateway traffic 使用 `127.0.0.1:3010`。Debug Portal traffic 使用 `127.0.0.1:3011/debug/obs`。Gateway 会故意对 `/debug/obs` 返回 not found，避免 agent tokens 和模型调用流量打开 Portal listener。
 
 ### Q: 我只想本地调试，CodeAgentLens 会把 prompt 发到远端服务吗？
 
-Debug Portal 从配置的 dump root 读取本地 dump 文件。完整 prompt/body artifacts 是本地 debug artifacts。OpenTelemetry traces 和 metrics 会导出到内置本地工具栈中配置的 local collector。
+Debug Portal 从配置的 dump root 读取本地 dump 文件。完整 prompt/body artifacts 是本地 debug artifacts。OpenTelemetry traces、metrics 和 logs 会导出到内置本地工具栈中配置的 local collector。
 
 ### Q: 如果 `3010` 或 `3011` 已经被占用怎么办？
 

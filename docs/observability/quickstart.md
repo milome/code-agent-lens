@@ -9,8 +9,21 @@ Debug Portal: `http://127.0.0.1:3011/debug/obs`
 Jaeger: `http://127.0.0.1:16686`
 Grafana: `http://127.0.0.1:13000`
 Prometheus: `http://127.0.0.1:9090/graph`
+Loki: `http://127.0.0.1:3100/ready`
 Tempo status: `http://127.0.0.1:3200/status`
 OTel Collector: `http://127.0.0.1:8888/metrics`
+
+## Query local logs
+
+Open Grafana Explore at `http://127.0.0.1:13000/explore`, select the `Loki` datasource, and query logs with:
+
+```logql
+{service_name="code-agent-lens"}
+```
+
+The OTel Collector receives OTLP logs on `4317` and `4318`, batches them, and exports them to Loki at `http://loki:3100/otlp`. The collector also keeps the debug exporter enabled so `docker compose logs otel-collector` remains a fallback when Loki is unavailable.
+
+Use the `service_name` value emitted by the OTLP log producer. For CodeAgentLens full Docker runtime this is `code-agent-lens`; agent-side telemetry such as Claude Code may use its own service name.
 
 ## Source checkout path
 

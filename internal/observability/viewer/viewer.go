@@ -28,6 +28,7 @@ const (
 	maxCodexToolCallSnippet    = 360
 	newTabRelAttrs             = `target="_blank" rel="noopener noreferrer"`
 	grafanaMetricsAllURL       = "http://127.0.0.1:13000/explore/metrics/trail?from=now-1h&to=now&var-ds=prometheus&var-otel_resources=&var-filters=&var-deployment_environment=&metricPrefix=all"
+	grafanaLokiLogsURL         = "http://127.0.0.1:13000/explore?left=%7B%22datasource%22:%22loki%22,%22queries%22:%5B%7B%22expr%22:%22%7Bservice_name%3D%5C%22code-agent-lens%5C%22%7D%22%7D%5D%7D"
 )
 
 type breadcrumbItem struct {
@@ -286,6 +287,7 @@ func (s *server) handlePortal(w http.ResponseWriter, r *http.Request) {
 	}{
 		{"Jaeger", "Trace 搜索与链路查看", "http://127.0.0.1:16686"},
 		{"Grafana", "Dashboard 与 Tempo 查询", "http://127.0.0.1:13000"},
+		{"Loki Logs", "Grafana Explore 查询 OTLP logs", grafanaLokiLogsURL},
 		{"Prometheus", "Metrics 查询页面", "http://127.0.0.1:9090/graph"},
 		{"Tempo", "Tempo 状态页面", "http://127.0.0.1:3200/status"},
 		{"OTel Collector", "Collector 自身 metrics 页面", "http://127.0.0.1:8888/metrics"},

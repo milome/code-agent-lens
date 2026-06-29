@@ -2,8 +2,7 @@ services:
   jaeger:
     image: jaegertracing/all-in-one:1.63.0
     ports:
-      - "127.0.0.1:16686:16686"
-      - "127.0.0.1:14250:14250"
+      - "${OTEL_BIND_HOST}:${JAEGER_PORT}:16686"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
   tempo:
@@ -11,7 +10,7 @@ services:
     command:
       - "-config.file=/etc/tempo/tempo.yaml"
     ports:
-      - "127.0.0.1:3200:3200"
+      - "${OTEL_BIND_HOST}:${TEMPO_PORT}:3200"
     volumes:
       - ./config/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/tmp/tempo
@@ -21,7 +20,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yaml"
       - "--storage.tsdb.path=/prometheus"
     ports:
-      - "127.0.0.1:9090:9090"
+      - "${OTEL_BIND_HOST}:${PROMETHEUS_PORT}:9090"
     volumes:
       - ./config/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - prometheus-data:/prometheus
@@ -30,39 +29,42 @@ services:
     command:
       - "-config.file=/etc/loki/loki.yaml"
     ports:
-      - "127.0.0.1:3100:3100"
+      - "${OTEL_BIND_HOST}:${LOKI_PORT}:3100"
     volumes:
       - ./config/loki/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
   grafana:
     image: grafana/grafana:11.3.0
     ports:
-      - "127.0.0.1:13000:3000"
+      - "${OTEL_BIND_HOST}:${GRAFANA_PORT}:3000"
     environment:
-      GF_SECURITY_ALLOW_EMBEDDING: "true"
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ALLOW_EMBEDDING: "${GF_SECURITY_ALLOW_EMBEDDING}"
+      GF_AUTH_ANONYMOUS_ENABLED: "${GF_AUTH_ANONYMOUS_ENABLED}"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "${GF_AUTH_ANONYMOUS_ORG_ROLE}"
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
+    depends_on:
+      - tempo
+      - prometheus
+      - loki
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.114.0
     command:
-      - "--config=/etc/otelcol/collector.local.yaml"
+      - "--config=/etc/otelcol/collector.yaml"
     ports:
-      - "127.0.0.1:4317:4317"
-      - "127.0.0.1:4318:4318"
-      - "127.0.0.1:8888:8888"
+      - "${OTEL_BIND_HOST}:${OTEL_GRPC_PORT}:4317"
+      - "${OTEL_BIND_HOST}:${OTEL_HTTP_PORT}:4318"
+      - "${OTEL_BIND_HOST}:${OTEL_COLLECTOR_METRICS_PORT}:8888"
     volumes:
-      - ./config/otel/collector.local.yaml:/etc/otelcol/collector.local.yaml:ro
+      - ./config/otel/collector.yaml:/etc/otelcol/collector.yaml:ro
     depends_on:
       - jaeger
       - tempo
       - prometheus
       - loki
 volumes:
-  tempo-data:
+  grafana-data:
   prometheus-data:
   loki-data:
-  grafana-data:
+  tempo-data:

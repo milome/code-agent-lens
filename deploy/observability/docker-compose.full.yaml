@@ -20,6 +20,7 @@ services:
       CODE_AGENT_LENS_OBS_CAPTURE_BODIES: all
       CODE_AGENT_LENS_OBS_CAPTURE_STREAM_EVENTS: all
       CODE_AGENT_LENS_OBS_PROMPT_EXTRACT: "true"
+      CODE_AGENT_LENS_OBS_SMOKE_UPSTREAM: "true"
       CODE_AGENT_LENS_BASIC_AUTH_ENABLED: "false"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: code-agent-lens
@@ -39,6 +40,10 @@ services:
     extends:
       file: docker-compose.observability.yaml
       service: prometheus
+  loki:
+    extends:
+      file: docker-compose.observability.yaml
+      service: loki
   grafana:
     extends:
       file: docker-compose.observability.yaml
@@ -50,4 +55,5 @@ services:
 volumes:
   tempo-data:
   prometheus-data:
+  loki-data:
   grafana-data:

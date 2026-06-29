@@ -12,7 +12,7 @@ Upstream: https://github.com/lich0821/ccNexus
 
 - A loopback Gateway/API at `http://127.0.0.1:3010` for code-agent model traffic.
 - A separate Debug Portal at `http://127.0.0.1:3011/debug/obs` for observability and local artifact inspection.
-- OpenTelemetry traces and metrics exported to a bundled local stack.
+- OpenTelemetry traces, metrics, and logs exported to a bundled local stack.
 - Local request dumps with prompt extraction, headers, request/response bodies, transformed bodies, stream events, and usage files.
 - Endpoint routing, retry, credential rotation, and token usage accounting across Claude, OpenAI Chat, and OpenAI Responses style clients.
 - Source-controlled local validation commands for native and Docker runtime modes.
@@ -36,8 +36,9 @@ Default local entry points:
 | Gateway/API | `http://127.0.0.1:3010` | Local code-agent model endpoint. |
 | Debug Portal | `http://127.0.0.1:3011/debug/obs` | Main UI for traces, prompts, artifacts, and tool links. |
 | Jaeger | `http://127.0.0.1:16686` | Trace search and span timing. |
-| Grafana | `http://127.0.0.1:13000` | Dashboards and Tempo/Prometheus queries. |
+| Grafana | `http://127.0.0.1:13000` | Dashboards and Tempo/Prometheus/Loki queries. |
 | Prometheus | `http://127.0.0.1:9090/graph` | Metrics query UI. |
+| Loki | `http://127.0.0.1:3100/ready` | Local log storage for Grafana Explore. |
 | Tempo | `http://127.0.0.1:3200/status` | Trace storage status. |
 | OTel Collector | `http://127.0.0.1:8888/metrics` | Collector diagnostics. |
 
@@ -78,8 +79,9 @@ CodeAgentLens local runtime data is canonicalized at `D:\DevTools\code-agent-len
 | Stream event capture | Records raw and transformed SSE events when stream capture is enabled. | Stream artifacts and `/debug/obs/request/{request_id}`. |
 | Debug Portal | Provides the local UI for recent requests, prompt sessions, errors, trace links, raw artifacts, and integrated tools. | `http://127.0.0.1:3011/debug/obs`. |
 | Jaeger integration | Shows distributed trace timing and links back to CodeAgentLens artifacts through `code-agent-lens_obs_ref`. | `/debug/obs/tool/jaeger` or native Jaeger. |
-| Grafana integration | Opens local dashboards and Tempo/Prometheus views while preserving Portal navigation. | `/debug/obs/tool/grafana` or native Grafana. |
+| Grafana integration | Opens local dashboards and Tempo/Prometheus/Loki views while preserving Portal navigation. | `/debug/obs/tool/grafana` or native Grafana. |
 | Prometheus metrics | Exposes counters and histograms for requests, errors, retries, endpoint rotations, stream events, credential refreshes, and token totals. | Prometheus or Grafana. |
+| Loki logs | Stores OTLP logs from the local collector for LogQL queries in Grafana Explore. | Select the `Loki` datasource and query `{service_name="code-agent-lens"}`. |
 | Validation CLI | Produces evidence for stack profiles, local debug policy, synthetic traces, auth simulations, and port checks. | `go run ./cmd/code-agent-lens obs ...`. |
 
 ### Captured Artifacts
@@ -106,7 +108,7 @@ go run ./cmd/code-agent-lens obs validate --deployment-profile local_debug --pro
 
 ### Native Runtime Plus Docker Observability
 
-Use this mode when you want the native CodeAgentLens process on `3010` and `3011`, with Docker providing Jaeger, Grafana, Prometheus, Tempo, and the OTel Collector.
+Use this mode when you want the native CodeAgentLens process on `3010` and `3011`, with Docker providing Jaeger, Grafana, Prometheus, Loki, Tempo, and the OTel Collector.
 
 Start the observability-only Docker stack first:
 
@@ -198,13 +200,17 @@ Open `/debug/obs/tool/jaeger` or native Jaeger at `http://127.0.0.1:16686`. Sear
 
 Open `/debug/obs/tool/grafana` or native Grafana at `http://127.0.0.1:13000`. Prometheus metrics include request totals, error totals, request duration, upstream duration, retries, endpoint rotations, token counters, stream events, and credential refresh/failure counters.
 
+### Q: Where do I query logs?
+
+Open Grafana Explore at `http://127.0.0.1:13000/explore`, select the `Loki` datasource, and run `{service_name="code-agent-lens"}` for the full Docker runtime. Use the `service_name` emitted by each OTLP log producer for agent-side telemetry. The bundled OTel Collector exports OTLP logs to Loki at `http://loki:3100/otlp` and keeps the debug exporter as a fallback.
+
 ### Q: I want to confirm the Portal is separate from the Gateway/API.
 
 Gateway traffic uses `127.0.0.1:3010`. Debug Portal traffic uses `127.0.0.1:3011/debug/obs`. The gateway deliberately returns not found for `/debug/obs` so agent tokens and model-call traffic do not open the Portal listener.
 
 ### Q: I only want local debugging. Will CodeAgentLens publish my prompts to a remote service?
 
-The Debug Portal reads local dump files from the configured dump root. Full prompt/body artifacts are local debug artifacts. OpenTelemetry exports traces and metrics to the configured local collector in the bundled local stack.
+The Debug Portal reads local dump files from the configured dump root. Full prompt/body artifacts are local debug artifacts. OpenTelemetry exports traces, metrics, and logs to the configured local collector in the bundled local stack.
 
 ### Q: What should I do if `3010` or `3011` is already occupied?
 

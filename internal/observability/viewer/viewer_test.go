@@ -134,6 +134,10 @@ func TestViewerShowsPortalWithToolLinks(t *testing.T) {
 		"http://127.0.0.1:16686",
 		"Grafana",
 		"http://127.0.0.1:13000",
+		"Loki Logs",
+		"Grafana Explore 查询 OTLP logs",
+		"http://127.0.0.1:13000/explore?left=%7B%22datasource%22:%22loki%22",
+		"%7Bservice_name%3D%5C%22code-agent-lens%5C%22%7D",
 		"Prometheus",
 		"http://127.0.0.1:9090/graph",
 		"Tempo",
@@ -151,6 +155,7 @@ func TestViewerShowsPortalWithToolLinks(t *testing.T) {
 	for _, href := range []string{
 		"http://127.0.0.1:16686",
 		"http://127.0.0.1:13000",
+		"http://127.0.0.1:13000/explore?left=%7B%22datasource%22:%22loki%22,%22queries%22:%5B%7B%22expr%22:%22%7Bservice_name%3D%5C%22code-agent-lens%5C%22%7D%22%7D%5D%7D",
 		"http://127.0.0.1:9090/graph",
 		"http://127.0.0.1:3200/status",
 		"http://127.0.0.1:8888/metrics",

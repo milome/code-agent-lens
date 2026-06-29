@@ -12,6 +12,8 @@ processors:
 exporters:
   debug:
     verbosity: detailed
+  otlphttp/logs:
+    endpoint: http://127.0.0.1:3100/otlp
   otlp/tempo:
     endpoint: 127.0.0.1:4317
     tls:
@@ -27,6 +29,10 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/logs, debug]
 
 # Grafana Tempo Trace correlation:
 # - Use traceID and spanID from spans to correlate the Jaeger/Grafana trace with CodeAgentLens local dump files.
