@@ -285,6 +285,15 @@ func desktopObservabilityConfig(defaultDumpDir string) observability.Config {
 	cfg.LocalDebug = desktopBoolEnv("CODE_AGENT_LENS_OBS_LOCAL_DEBUG", true)
 	cfg.DumpEnabled = desktopBoolEnv("CODE_AGENT_LENS_OBS_DUMP_ENABLED", true)
 	cfg.PromptExtract = desktopBoolEnv("CODE_AGENT_LENS_OBS_PROMPT_EXTRACT", true)
+	if strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_OBS_CAPTURE_HEADERS")) == "" {
+		cfg.CaptureHeaders = "all"
+	}
+	if strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_OBS_CAPTURE_BODIES")) == "" {
+		cfg.CaptureBodies = "all"
+	}
+	if strings.TrimSpace(os.Getenv("CODE_AGENT_LENS_OBS_CAPTURE_STREAM_EVENTS")) == "" {
+		cfg.CaptureStreamEvents = "all"
+	}
 	return cfg
 }
 

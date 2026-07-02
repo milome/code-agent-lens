@@ -61,6 +61,9 @@ func TestDesktopObservabilityDefaultsEnableOTel(t *testing.T) {
 	if !cfg.LocalDebug || !cfg.DumpEnabled || !cfg.PromptExtract {
 		t.Fatalf("desktop observability should default local debug capture on: %+v", cfg)
 	}
+	if cfg.CaptureHeaders != "all" || cfg.CaptureBodies != "all" || cfg.CaptureStreamEvents != "all" {
+		t.Fatalf("desktop observability should capture debug metadata by default: %+v", cfg)
+	}
 }
 
 func TestDesktopObservabilityEnvCanDisableOTel(t *testing.T) {
@@ -70,5 +73,17 @@ func TestDesktopObservabilityEnvCanDisableOTel(t *testing.T) {
 
 	if cfg.Enabled {
 		t.Fatalf("desktop observability should honor explicit CODE_AGENT_LENS_OTEL_ENABLED=false")
+	}
+}
+
+func TestDesktopObservabilityCaptureEnvOverridesDefaults(t *testing.T) {
+	t.Setenv("CODE_AGENT_LENS_OBS_CAPTURE_HEADERS", "none")
+	t.Setenv("CODE_AGENT_LENS_OBS_CAPTURE_BODIES", "none")
+	t.Setenv("CODE_AGENT_LENS_OBS_CAPTURE_STREAM_EVENTS", "none")
+
+	cfg := desktopObservabilityConfig(t.TempDir())
+
+	if cfg.CaptureHeaders != "none" || cfg.CaptureBodies != "none" || cfg.CaptureStreamEvents != "none" {
+		t.Fatalf("desktop observability should honor explicit capture env overrides: %+v", cfg)
 	}
 }
