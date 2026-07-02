@@ -12,6 +12,17 @@ cmd/desktop/frontend/dist/
 coverage/
 dist/
 build/
+!cmd/desktop/build/
+cmd/desktop/build/*
+!cmd/desktop/build/appicon.png
+!cmd/desktop/build/appicon.svg
+!cmd/desktop/build/darwin/
+cmd/desktop/build/darwin/*
+!cmd/desktop/build/darwin/Info.plist
+!cmd/desktop/build/windows/
+cmd/desktop/build/windows/*
+!cmd/desktop/build/windows/icon.ico
+!cmd/desktop/build/windows/wails.exe.manifest
 
 # Runtime data and logs
 *.db
