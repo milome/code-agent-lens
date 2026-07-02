@@ -14,6 +14,7 @@ const required = [
   "- 'v*'",
   "pull_request:",
   "workflow_dispatch:",
+  "node-version: '24'",
   "platform: linux",
   "platform: darwin",
   "platform: windows",
