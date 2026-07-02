@@ -22,7 +22,7 @@
   "info": {
     "companyName": "milome",
     "productName": "CodeAgentLens",
-    "productVersion": "1.0.0",
+    "productVersion": "1.0.1",
     "copyright": "Copyright (c) 2026 milome",
     "comments": "A locally running model-endpoint gateway and observability workbench for coding agents."
   }
